@@ -1,7 +1,6 @@
 local util = require('blaze.lang.util')
 local tree = require('blaze.lang.tree')
-local Op   = require('blaze.lang.gen.op')
-local lua  = require('blaze.lang.gen.lua')
+local Op   = require('blaze.lang.op')
 
 local Process = require("blaze.lang.process")
 
