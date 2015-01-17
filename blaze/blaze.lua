@@ -166,7 +166,12 @@ local function runopt(args)
    end
 
    _G.arg = { [0] = name, unpack(args) }
-   main(name, unpack(args))
+   local function trace(msg)
+      local maps = debug.getregistry().maps
+      local info = debug.getinfo(3)
+      print(info.source)
+   end
+   local ok, er = xpcall(main, trace, name, unpack(args))
    if opts['-i'] then
       interactive(getfenv(main))
    end

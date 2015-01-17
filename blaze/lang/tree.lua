@@ -27,6 +27,7 @@ local Visitor = { } do
    function Visitor:visitMethodNode(node, ...) return self:visitDeclaration(node, ...) end
    function Visitor:visitParameterNode(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitParameterList(node, ...) return self:visitNode(node, ...) end
+   function Visitor:visitSignatureNode(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitFunctionNode(node, ...) return self:visitDeclaration(node, ...) end
    function Visitor:visitMacroNode(node, ...) return self:visitDeclaration(node, ...) end
    function Visitor:visitModuleStatement(node, ...) return self:visitStatement(node, ...) end
@@ -38,6 +39,8 @@ local Visitor = { } do
    function Visitor:visitInExpression(node, ...) return self:visitExpression(node, ...) end
    function Visitor:visitRichString(node, ...) return self:visitExpression(node, ...) end
    function Visitor:visitTablePattern(node, ...) return self:visitExpression(node, ...) end
+   function Visitor:visitTableItem(node, ...) return self:visitExpression(node, ...) end
+   function Visitor:visitTablePair(node, ...) return self:visitExpression(node, ...) end
    function Visitor:visitTableLiteral(node, ...) return self:visitExpression(node, ...) end
    function Visitor:visitIfStatement(node, ...) return self:visitStatement(node, ...) end
    function Visitor:visitLoop(node, ...) return self:visitStatement(node, ...) end
@@ -193,10 +196,10 @@ Node = { tag = "Node" } do
    end
 
    function Node:set_line(line)
-      self._line = line
+      self.line = line
    end
    function Node:get_line()
-      return self._line
+      return self.line
    end
    function Node:set_decorators(decos)
       self._decorators = NodeList.new(decos or { })
@@ -400,13 +403,13 @@ end
 
 local PropertyNode = { tag = "PropertyNode" } do
    PropertyNode.__index = setmetatable(PropertyNode, Node)
-   PropertyNode.child_keys = { 'name', 'type', 'default' }
+   PropertyNode.child_keys = { 'name', 'type', 'init' }
 
-   function PropertyNode.new(name, type, default)
+   function PropertyNode.new(name, type, init)
       return setmetatable({
          name = name,
          type = type,
-         default = default,
+         init = init,
       }, PropertyNode)
    end
    function PropertyNode:accept(visitor, ...)
@@ -419,7 +422,7 @@ local MethodNode = { tag = "MethodNode" } do
    MethodNode.child_keys = { 'name', 'head', 'body' }
 
    function MethodNode.new(name, head, body)
-      head:ensure_self()
+      --head.params:ensure_self()
       return setmetatable({
          name = name,
          head = head,
@@ -510,6 +513,22 @@ local ParameterList = { tag = "ParameterList" } do
          local ident = Identifier.new("self")
          table.insert(self, 1, ParameterNode.new(ident))
       end
+   end
+end
+
+local SignatureNode = { tag = "SignatureNode" } do
+   SignatureNode.__index = setmetatable(SignatureNode, Node)
+   SignatureNode.child_keys = { 'params', 'returns' }
+
+   function SignatureNode.new(params, returns)
+      return setmetatable({
+         params = params,
+         returns = returns,
+      }, SignatureNode)
+   end
+
+   function SignatureNode:accept(visitor, ...)
+      return visitor:visitSignatureNode(self, ...)
    end
 end
 
@@ -704,6 +723,30 @@ local TablePattern = { tag = "TablePattern" } do
 
    function TablePattern:accept(visitor, ...)
       return visitor:visitTablePattern(self, ...)
+   end
+end
+
+local TableItem = { tag = "TableItem" } do
+   TableItem.__index = setmetatable(TableItem, Node)
+   TableItem.child_keys = { 'value' }
+
+   function TableItem.new(item)
+      return setmetatable(item, TableItem)
+   end
+   function TableItem:accept(visitor, ...)
+      return visitor:visitTableItem(self, ...)
+   end
+end
+
+local TablePair = { tag = "TablePair" } do
+   TablePair.__index = setmetatable(TablePair, Node)
+   TablePair.child_keys = { 'name', 'expr', 'value' }
+
+   function TablePair.new(pair)
+      return setmetatable(pair, TablePair)
+   end
+   function TablePair:accept(visitor, ...)
+      return visitor:visitTablePair(self, ...)
    end
 end
 
@@ -1626,6 +1669,7 @@ return {
    MethodNode = MethodNode,
    ParameterNode = ParameterNode,
    ParameterList = ParameterList,
+   SignatureNode = SignatureNode,
    FunctionNode = FunctionNode,
    MacroNode = MacroNode,
    ModuleStatement = ModuleStatement,
@@ -1638,6 +1682,8 @@ return {
    RichString = RichString,
    TablePattern = TablePattern,
    TableLiteral = TableLiteral,
+   TableItem = TableItem,
+   TablePair = TablePair,
    IfStatement = IfStatement,
    WhileStatement = WhileStatement,
    RepeatStatement = RepeatStatement,

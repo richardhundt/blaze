@@ -56,12 +56,11 @@ export.dump = dump
 local ID = 0
 export.genid = function(prefix)
    ID = ID + 1
-   prefix = prefix or '$#'
+   prefix = prefix or '__'
    return prefix..ID
 end
 
 function export.quote(str)
-   --return (string.format("%q", str):gsub("\\\n", "\n"))
    return (string.format("%q", str):gsub("\\\n", "\\n"))
 end
 function export.unquote(str)
@@ -105,7 +104,7 @@ function export.demangle(name)
 end
 function export.mixin(this, that)
    for k,v in pairs(that) do
-      thus[k] = v
+      this[k] = v
    end
 end
 function export.class(this, base, ...)

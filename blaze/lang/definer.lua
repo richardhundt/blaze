@@ -80,6 +80,7 @@ local Definer = { } do
 
       self.ctx.registry:set_info(unit.path, unit)
       self.unit = unit
+
       unit.tree:accept(self)
 
       return self.module
@@ -170,11 +171,14 @@ local Definer = { } do
 
    function Definer:visitFunctionNode(node, parent)
       self:visitNode(node)
-      local name = node:get_name()
+      local name
+      if node.name.tag == 'Identifier' then
+         name = node:get_name()
+      end
       local func = model.FunctionInfo.new(name)
       self.ctx.registry:set_info(node, func)
 
-      if not (node:is_local() or node:is_expression()) then
+      if name and not (node:is_local() or node:is_expression()) then
          parent:define(name, func)
       end
 

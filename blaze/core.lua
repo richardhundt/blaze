@@ -14,10 +14,6 @@ local Class
 local Range
 local Object
 
-local export = { }
-
-export._VERSION = "0.2.0"
-
 local type, tonumber, tostring = _G.type, _G.tonumber, _G.tostring
 local getmetatable, setmetatable = _G.getmetatable, _G.setmetatable
 local pcall, unpack, select = _G.pcall, _G.unpack, _G.select
@@ -25,6 +21,15 @@ local pcall, unpack, select = _G.pcall, _G.unpack, _G.select
 local __is__, __match__, include
 
 local Meta = { }
+Meta.__call = function(meta, ...)
+   if meta.__apply then
+      return meta.__apply(meta, ...)
+   elseif meta.self then
+      local self = setmetatable({ }, meta)
+      meta.self(self, ...)
+      return self
+   end
+end
 Meta.__index = Meta
 Meta.__members__ = { }
 Meta.__getters__ = { }
@@ -1106,6 +1111,18 @@ local UserData  = setmetatable({ __name = 'UserData'  }, Meta)
 local Coroutine = setmetatable({ __name = 'Coroutine' }, Meta)
 local CData     = setmetatable({ __name = 'CData'     }, Meta)
 
+Table.__members__ = { }
+Table.__index = Table.__members__
+function Table.__apply(self, proto)
+   return setmetatable({ proto }, self)
+end
+function Table.__members__:__getindex(key)
+   return self[1][key]
+end
+function Table.__members__:__setindex(key, val)
+   self[1][key] = val
+end
+
 for k, v in pairs(table) do
    Table[k] = v
 end
@@ -1116,6 +1133,7 @@ function Table.keys(t)
    end
    return ks
 end
+
 for k, v in pairs(coroutine) do
    Coroutine[k] = v
 end
@@ -1241,7 +1259,67 @@ local function __in__(names, expr)
    return unpack(t, 1, #names)
 end
 
+local patterns = {
+   "^(.-):(%d+): ([^']+)'([^']+)'(.-)$",
+   "^(.-):(%d+): (.-)$"
+}
+local formats = {
+   "%s:%s: %s'%s'%s",
+   "%s:%s: %s"
+}
+local function parse_error(msg)
+   for i=1, #patterns  do
+      local _1, _2, _3, _4, _5 = msg:match(patterns[i])
+      if _1 then
+         return i, _1, _2, _3, _4, _5
+      end
+   end
+end
+
+local function errfunc(e)
+   if type(e) == "string" then
+      local fidx, file, line, mesg, name, xtra = parse_error(e)
+      if fidx then
+         local map = __magic__._MAPS[file]
+         if map then
+            local fmt = formats[fidx]
+            local i = map[tonumber(line)]
+            local f, l
+            if type(i) == 'table' then
+               f, l = i[1], i[2]
+            else
+               f, l = file, i or line
+            end
+            local m = mesg
+            local n = map[name] or name
+            local x = xtra
+            local m = string.format(fmt,f,l,m,n,x)
+            local s = m .. "\n" .. debug.traceback()
+            print(s)
+            return s
+         else
+            local s = e .. "\n" .. debug.traceback()
+            print(s)
+            return s
+         end
+      else
+         print(e)
+         return e
+      end
+   end
+end
+
+local function run(main, ...)
+   xpcall(main, errfunc, ...)
+end
+
+local function new(base, ...)
+   return base(...)
+end
+
 __magic__ = {
+   _MAPS = { };
+
    -- builtin types
    Meta = Meta;
    Nil = Nil;
@@ -1307,6 +1385,10 @@ __magic__ = {
    __bor__ = bit.bor;
    __bxor__ = bit.bxor;
    __take__ = coroutine.yield;
+   run = run;
+   new = new;
+
+   _VERSION = "0.0.1";
 }
 
 setmetatable(__magic__, {
@@ -1320,9 +1402,6 @@ setmetatable(__magic__, {
    end
 })
 
-_G.__magic__ = __magic__
-export.__magic__ = __magic__
-package.loaded["blaze.core"] = export
-
-return export
+package.loaded["blaze.core"] = __magic__
+return __magic__
 

@@ -1,12 +1,15 @@
 --local tvm        = require('tvm')
+local util     = require('blaze.lang.util')
 local compiler = require('blaze.lang.compiler')
 
 local magic = string.char(0x1b, 0x4c, 0x4a, 0x01)
 
 local function loadchunk(code, name, opts)
    if string.sub(code, 1, #magic) ~= magic then
-      code = compiler.compile(code, name, opts)
+      local unit = compiler.compile(code, name, opts)
+      code = unit.code
    end
+   print("CODE:", code, name)
    return loadstring(code, '@'..name)
 end
 

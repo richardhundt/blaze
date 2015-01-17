@@ -41,6 +41,9 @@ function defs.term(line, node, tail)
       elseif oper == '::' then
          node = defs.memberExpr(node, expr, false)
          node.namespace = true
+      elseif oper == '::[' then
+         node = defs.memberExpr(node, expr, true)
+         node.namespace = true
       elseif oper == '[' then
          node = defs.memberExpr(node, expr, true)
       elseif oper == '(' then
@@ -187,8 +190,12 @@ function defs.tablePatt(entries, coerce)
    return tree.TablePattern.new(entries, coerce)
 end
 
-function defs.tableEntry(item)
-   return item
+function defs.tableItem(item)
+   return tree.TableItem.new(item)
+end
+
+function defs.tablePair(pair)
+   return tree.TablePair.new(pair)
 end
 
 function defs.tableExpr(entries)
@@ -200,10 +207,10 @@ function defs.whileStmt(test, body)
 end
 
 function defs.ifStmt(test, cons, altn)
-   if cons.tag ~= "Block" then
+   if cons.tag ~= "BlockNode" then
       cons = defs.block{ cons }
    end
-   if altn and altn.tag ~= "Block" then
+   if altn and altn.tag ~= "BlockNode" then
       altn = defs.block{ altn }
    end
    return tree.IfStatement.new(test, cons, altn)
@@ -251,42 +258,25 @@ function defs.paramList(params)
    return tree.ParameterList.new(params)
 end
 
-function defs.funcDecl(path, head, body)
-   if body.tag ~= "Block" then
+function defs.funcHead(params, returns)
+   return tree.SignatureNode.new(params, returns)
+end
+
+function defs.funcDecl(name, head, body)
+   if body.tag ~= "BlockNode" then
       body = defs.block{ defs.returnStmt(body) }
    end
-
-   local name, oper
-   if path then
-      if #path == 1 then
-         name = path[1]
-      else
-         name = util.fold_left(path, function(a, b)
-            if type(b) == 'string' then
-               oper = b
-               return a
-            else
-               return defs.memberExpr(a, b)
-            end
-         end)
-      end
-   end
-
-   if oper == '.' then
-      head:ensure_self()
-   end
-
    return tree.FunctionNode.new(name, head, body)
 end
 
 function defs.localFuncDecl(name, head, body)
-   local decl = defs.funcDecl({ name }, head, body)
+   local decl = defs.funcDecl(name, head, body)
    decl:set_local(true)
    return decl
 end
 
 function defs.localCoroDecl(name, head, body)
-   local decl = defs.funcDecl({ name }, head, body)
+   local decl = defs.funcDecl(name, head, body)
    decl:set_local(true)
    decl:set_generator(true)
    return decl
@@ -1101,18 +1091,14 @@ local patt = [=[
       <expr> (s "," s <expr>)*
    )
 
-   qname <- (
-      (<ident> (s {"."} s <qname> / s {"::"} s <qname>)) / <ident>
-   )
-
    func_decl <- (
-      {| <qname> |} <func_head>
+      <ident> <func_head>
       (hs "=>" s {| <expr_list> |} / s <func_body>)
    ) -> funcDecl
 
    func_head <- (
-      "(" s <param_list> s ")"
-   )
+      "(" s <param_list> s ")" (hs ":" <type_list> / '' -> nil)
+   ) -> funcHead
 
    func_expr <- (
       <func_head> (hs "=>" s {| <expr_list> |} / s <func_body>)
@@ -1157,7 +1143,7 @@ local patt = [=[
 
    class_member <- (
       {| (<decorator> (s <decorator>)* s)? |} (
-         <prop_decl> / <coro_decl> / <meth_decl>
+         <coro_decl> / <meth_decl> / <prop_decl>
       )
    ) -> classMember
 
@@ -1166,8 +1152,8 @@ local patt = [=[
    )
 
    prop_decl <- {|
-      "let" <idsafe> hs {:name: <ident> :}
-      (s ":" s {:type: <expr> :} / '' -> nil)
+      {:name: <ident> :}
+      (s ":" s {:type: <type_expr> :} / '' -> nil)
       (s "=" s {:default: <expr> :})?
    |} -> propDecl
 
@@ -1205,7 +1191,7 @@ local patt = [=[
    ) -> typeVariance
 
    type_list <- (
-      {| s <type_expr> (s "," s <type_expr>)* s |}
+      {| s <type_expr> (s "," s <type_expr>)* |}
    ) -> typeList
 
    type_expr <- (
@@ -1400,14 +1386,18 @@ local patt = [=[
    )
 
    table_entry <- (
-      <table_pair> / {| {:value: <expr> :} |}
-   ) -> tableEntry
+      <table_pair> / <table_item>
+   )
+
+   table_item <- (
+      {| {:value: <expr> :} |}
+   ) -> tableItem
 
    table_pair <- {|
       ({:name: <name> :}
          / {:expr: "[" s <expr> s ("]"/ %1 -> error) :}
       ) s "=" !'>' s {:value: <expr> :}
-   |}
+   |} -> tablePair
 
    pattern <- (
       "/" s (<patt_grammar> / <patt_expr>) s ("/" / %s => error)
@@ -1581,8 +1571,17 @@ local Parser = { } do
       end)
    end
 
+   local function link_parent(node, parent)
+      node.parent = parent
+      for n in node:children() do
+         link_parent(n, node)
+      end
+   end
+
    function Parser:parse(src, name, line, ...)
-      return grammar:match(src, nil, name, line or 1, ...)
+      local tree = grammar:match(src, nil, name, line or 1, ...)
+      link_parent(tree, nil)
+      return tree
    end
 end
 
