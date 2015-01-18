@@ -60,8 +60,7 @@ local Checker = { } do
    end
 
    function Checker:visitClassNode(node, parent)
-      local info = self.ctx.registry:get_info(node)
-      print("GOT INFO:", util.dump(info))
+      print("GOT INFO:", util.dump(node.info))
    end
 
    function Checker:visitLocalDeclaration(node, parent)

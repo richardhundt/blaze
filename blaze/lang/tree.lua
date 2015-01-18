@@ -99,8 +99,10 @@ local Visitor = { } do
    function Visitor:visitPatternTerm(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitPatternPredef(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitPatternArgument(node, ...) return self:visitNode(node, ...) end
-   function Visitor:visitTypeTerm(node, ...) return self:visitNode(node, ...) end
+   function Visitor:visitTypeName(node, ...) return self:visitNode(node, ...) end
+   function Visitor:visitFunctionType(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitTypeCall(node, ...) return self:visitNode(node, ...) end
+   function Visitor:visitTypeParams(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitTypeVariance(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitTypeList(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitTypeGroup(node, ...) return self:visitNode(node, ...) end
@@ -398,6 +400,9 @@ local ClassNode = { tag = "ClassNode" } do
    end
    function ClassNode:get_name()
       return self.name:get_symbol()
+   end
+   function ClassNode:get_parameters()
+      return self.args
    end
 end
 
@@ -1028,11 +1033,12 @@ end
 
 local NewExpression = { tag = "NewExpression" } do
    NewExpression.__index = setmetatable(NewExpression, Expression)
-   NewExpression.child_keys = { 'base', 'arguments' }
+   NewExpression.child_keys = { 'base', 'types', 'arguments' }
 
-   function NewExpression.new(base, args)
+   function NewExpression.new(base, types, args)
       return setmetatable({
          base = base,
+         types = types,
          arguments = NodeList.new(args),
       }, NewExpression)
    end
@@ -1561,18 +1567,19 @@ local PatternArgument = { tag = "PatternArgument" } do
    end
 end
 
-local TypeCall = { tag = "TypeCall" } do
-   TypeCall.__index = setmetatable(TypeCall, Node)
-   TypeCall.child_keys = { 'base', 'arguments' }
+local FunctionType = { tag = "FunctionType" } do
+   FunctionType.__index = setmetatable(FunctionType, Node)
+   FunctionType.child_keys = { 'params', 'returns' }
 
-   function TypeCall.new(base, args)
+   function FunctionType.new(params, returns)
       return setmetatable({
-         base = base,
-         arguments = args,
-      }, TypeCall)
+         params = params,
+         returns = returns,
+      }, FunctionType)
    end
-   function TypeCall:accept(visitor, ...)
-      return visitor:visitTypeCall(self, ...)
+
+   function FunctionType:accept(visitor, ...)
+      return visitor:visitFunctionType(self, ...)
    end
 end
 
@@ -1591,18 +1598,28 @@ local TypeVariance = { tag = "TypeVariance" } do
    end
 end
 
-local TypeTerm = { tag = "TypeTerm" } do
-   TypeTerm.__index = setmetatable(TypeTerm, Node)
-   TypeTerm.child_keys = { 'base', 'arguments' }
+local TypeName = { tag = "TypeName" } do
+   TypeName.__index = setmetatable(TypeName, Node)
+   TypeName.child_keys = { 'base', 'arguments' }
 
-   function TypeTerm.new(base, args)
+   function TypeName.new(base, args)
       return setmetatable({
          base = base,
          arguments = args,
-      }, TypeTerm)
+      }, TypeName)
    end
-   function TypeTerm:accept(visitor, ...)
-      return visitor:visitTypeTerm(self, ...)
+   function TypeName:accept(visitor, ...)
+      return visitor:visitTypeName(self, ...)
+   end
+end
+
+local TypeParams = { tag = "TypeParams" } do
+   TypeParams.__index = setmetatable(TypeParams, NodeList)
+   function TypeParams.new(list)
+      return setmetatable(list, TypeParams)
+   end
+   function TypeParams:accept(visitor, ...)
+      return visitor:visitTypeParams(self, ...)
    end
 end
 
@@ -1740,9 +1757,11 @@ return {
    PatternTerm = PatternTerm,
    PatternPredef = PatternPredef,
    PatternArgument = PatternArgument,
-   TypeTerm = TypeTerm,
+   TypeName = TypeName,
    TypeCall = TypeCall,
+   TypeParams = TypeParams,
    TypeVariance = TypeVariance,
+   FunctionType = FunctionType,
    TypeList = TypeList,
    TypeGroup = TypeGroup,
    TypeUnion = TypeUnion,

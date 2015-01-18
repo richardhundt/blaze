@@ -232,10 +232,16 @@ local TraitInfo = { kind = "trait" } do
          mixins  = { };
       }, TraitInfo)
    end
-
-   function TraitInfo:add_param(info)
-      self.params[#self.params + 1] = info
+   function TraitInfo:has_parameters()
+      return #self.params > 0
    end
+
+   -- XXX: nominal only for now
+   function TraitInfo:add_parameter(name, info)
+      self.params[#self.params + 1] = name
+      self.params[name] = #self.params
+   end
+
    function TraitInfo:add_member(name, info)
       self.members[name] = info
       self.members[#self.members + 1] = name

@@ -55,8 +55,8 @@ function defs.term(line, node, tail)
    return node
 end
 
-function defs.newExpr(base, args)
-   return tree.NewExpression.new(base, args)
+function defs.newExpr(base, types, args)
+   return tree.NewExpression.new(base, types, args)
 end
 
 function defs.expr(line, node)
@@ -138,16 +138,20 @@ function defs.typeExpr(expr)
    return expr
 end
 
-function defs.typeCall(base, expr)
-   return tree.TypeCall.new(base, expr)
+function defs.typeParams(list)
+   return tree.TypeParams.new(list)
 end
 
 function defs.typeVariance(name, base)
    return tree.TypeVariance.new(name, base)
 end
 
-function defs.typeTerm(base, args)
-   return tree.TypeTerm.new(base, args)
+function defs.typeName(base, args)
+   return tree.TypeName.new(base, args)
+end
+
+function defs.funcType(params, returns)
+   return tree.FunctionType.new(params, returns)
 end
 
 function defs.typeList(list)
@@ -251,7 +255,7 @@ function defs.spreadExpr(argument)
 end
 
 function defs.param(cap)
-   return tree.ParameterNode.new(cap.name, cap.type, cap.default, cap.rest)
+   return tree.ParameterNode.new(cap.name, cap.type, cap.init, cap.rest)
 end
 
 function defs.paramList(params)
@@ -377,7 +381,7 @@ function defs.classMember(deco, node)
 end
 
 function defs.propDecl(cap)
-   return tree.PropertyNode.new(cap.name, cap.type, cap.default)
+   return tree.PropertyNode.new(cap.name, cap.type, cap.init)
 end
 
 function defs.methDecl(kind, name, head, body)
@@ -1120,14 +1124,14 @@ local patt = [=[
 
    trait_decl <- (
       "trait" <idsafe> s <ident>
-      (s "<" <type_list> ">" / '' -> nil)
+      (s "<" <type_params> ">" / '' -> nil)
       (s <class_heritage> / '' -> nil) s
       <class_body>
    ) -> traitDecl
 
    class_decl <- (
       "class" <idsafe> s <ident>
-      (s "<" <type_list> ">" / '' -> nil)
+      (s "<" <type_params> ">" / '' -> nil)
       (s <class_heritage> / '' -> nil) s
       <class_body>
    ) -> classDecl
@@ -1148,13 +1152,13 @@ local patt = [=[
    ) -> classMember
 
    class_heritage <- (
-      "extends" <idsafe> s (<type_call> / <ident>)
+      "extends" <idsafe> s <type_name>
    )
 
    prop_decl <- {|
       {:name: <ident> :}
       (s ":" s {:type: <type_expr> :} / '' -> nil)
-      (s "=" s {:default: <expr> :})?
+      (s "=" s {:init: <expr> :})?
    |} -> propDecl
 
    meth_decl <- (
@@ -1162,33 +1166,18 @@ local patt = [=[
       <func_head> s <func_body>
    ) -> methDecl
 
-   type_param_term <- (
-      <ident> ("<" <type_param_list> ">" / '' -> nil)
-   ) -> typeTerm
-
-   type_param_expr <- (
-      <type_param_union>
-   ) -> typeExpr
-
-   type_param_list <- (
-      {| <type_param_expr> (s "," s <type_param_expr>)* |}
-   ) -> typeList
-
-   type_param_union <- (
-      {| <type_param_term> (s "|" s <type_param_term>)* |}
-   ) -> typeUnion
-
-   type_call <- (
-      <ident> "<" <type_param_list> ">"
-   ) -> typeCall
+   type_name <- (
+      <ident> ("<" <type_list> ">" / '' -> nil)
+   ) -> typeName
 
    type_term <- (
-      <ident> ("<" <type_list> ">" / '' -> nil)
-   ) -> typeTerm
+      <type_name> / <func_type>
+   )
 
-   type_variance <- (
-      <ident> s "extends" <idsafe> s <type_term>
-   ) -> typeVariance
+   func_type <- (
+      "(" s <type_list> s ")" s "=>" s
+      (<type_name> / "(" s <type_list> s ")")
+   ) -> funcType
 
    type_list <- (
       {| s <type_expr> (s "," s <type_expr>)* |}
@@ -1202,10 +1191,22 @@ local patt = [=[
       {| <type_term> (s "|" s <type_term>)* |}
    ) -> typeUnion
 
+   type_params <- (
+      {| <type_param> (s "," s <type_param>)* |}
+   ) -> typeParams
+
+   type_param <- (
+      <type_variance> / <ident>
+   )
+
+   type_variance <- (
+      <ident> s "extends" <idsafe> s <ident>
+   ) -> typeVariance
+
    param <- {|
       {:name: <ident> :}
       (s ":" s {:type: <type_expr> :})?
-      (s "=" s {:default: <expr> :})?
+      (s "=" s {:init: <expr> :})?
    |} -> param
 
    param_list <- {| <param_next>? |} -> paramList
@@ -1279,7 +1280,7 @@ local patt = [=[
    ) -> identifier
 
    new_expr <- (
-      "new" <idsafe> s (<type_call> / <ident>)
+      "new" <idsafe> s <ident> ("<" <type_list> ">" / '' -> nil)
       ("(" s {| <expr_list>? |} s (")" / %1 => error))?
    ) -> newExpr
 

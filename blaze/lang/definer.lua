@@ -43,13 +43,7 @@ local Definer = { } do
       return Process.new(function(input)
          self.input = input
          for unit in input do
-            local save_unit   = self.unit
-            local save_module = self.module
-
             self:resolve(unit)
-
-            self.unit   = save_unit
-            self.module = save_module
          end
          for i=#self.queue, 1, -1 do
             yield(self.queue[i])
@@ -72,6 +66,9 @@ local Definer = { } do
    end
 
    function Definer:resolve(unit)
+      local save_unit   = self.unit
+      local save_module = self.module
+
       print(tree.Dumper.dump(unit.tree))
       self.ctx:set_file(unit.path)
 
@@ -83,7 +80,11 @@ local Definer = { } do
 
       unit.tree:accept(self)
 
-      return self.module
+      local module = self.module
+      self.unit   = save_unit
+      self.module = save_module
+
+      return module
    end
 
    function Definer:visitNode(node)
@@ -96,7 +97,7 @@ local Definer = { } do
 
    function Definer:visitChunkNode(node)
       self:visitNode(node)
-      self.ctx.registry:set_info(node, self.module)
+      node.info = self.module
 
       for n in node:children() do
          n:accept(self, self.module)
@@ -127,14 +128,14 @@ local Definer = { } do
       end
 
       self.unit:set_module(module)
-      self.ctx.registry:set_info(node, module)
+      node.info = module
    end
 
    function Definer:visitTraitNode(node, parent)
       self:visitNode(node)
       local name = node:get_name()
       local trait = model.TraitInfo.new(name)
-      self.ctx.registry:set_info(node, trait)
+      node.info = trait
 
       parent:define(name, trait)
 
@@ -147,10 +148,21 @@ local Definer = { } do
       self:visitNode(node)
       local name = node:get_name()
       local class = model.ClassInfo.new(name)
-      self.ctx.registry:set_info(node, class)
+      node.info = class
 
       parent:define(name, class)
-
+      local type_args = node:get_parameters()
+      if type_args then
+         for i=1, #type_args do
+            -- XXX: this can also be 'A extends B<C>'
+            if type_args[i].tag == 'TypeVariance' then
+            else
+               assert(type_args[i].tag == 'Identifier')
+               local type_name = type_args[i]:get_symbol()
+               class:add_parameter(type_name)
+            end
+         end
+      end
       for n in node:children() do
          n:accept(self, class)
       end
@@ -160,7 +172,7 @@ local Definer = { } do
       self:visitNode(node)
       local name = node:get_name()
       local method = model.MethodInfo.new(name)
-      self.ctx.registry:set_info(node, method)
+      node.info = method
 
       parent:add_member(name, method)
 
@@ -176,7 +188,7 @@ local Definer = { } do
          name = node:get_name()
       end
       local func = model.FunctionInfo.new(name)
-      self.ctx.registry:set_info(node, func)
+      node.info = func
 
       if name and not (node:is_local() or node:is_expression()) then
          parent:define(name, func)

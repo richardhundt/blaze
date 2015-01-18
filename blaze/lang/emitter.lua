@@ -1,6 +1,5 @@
 local util = require('blaze.lang.util')
 local tree = require('blaze.lang.tree')
-local Op   = require('blaze.lang.op')
 
 local Process = require("blaze.lang.process")
 
@@ -13,7 +12,6 @@ local Emitter = { } do
       return setmetatable({
          ctx     = ctx;
          imports = { };
-         buffer  = { };
          level   = 0;
          dent    = '   ';
          margin  = '';
@@ -25,9 +23,9 @@ local Emitter = { } do
    function Emitter:spawn()
       return Process.new(function(input)
          for unit in input do
-            unit.code = self:build(unit)
-            yield(unit)
+            self:build(unit)
          end
+         yield(self:output())
       end)
    end
 
@@ -51,6 +49,14 @@ local Emitter = { } do
    end
    function Emitter:writefmt(fmt, ...)
       self:write(fmt:format(...))
+   end
+   function Emitter:writelist(node, ...)
+      for i=1, #node do
+         node[i]:accept(self, ...)
+         if i < #node then
+            self:write(',')
+         end
+      end
    end
 
    function Emitter:write_srcmap(idx)
@@ -77,10 +83,8 @@ local Emitter = { } do
 
    function Emitter:build(unit)
       self.unit = unit
-      self.buffer = { }
       self.srcmap = { }
       unit.tree:accept(self, unit)
-      return self:output()
    end
 
    function Emitter:visitNode(node)
@@ -105,7 +109,6 @@ local Emitter = { } do
    local DEBUG = false
    function Emitter:visitChunkNode(node, unit)
       self.ctx:sync_line(node:get_line())
-      self:writeln()
 
       if false and not unit.imports["blaze.core"] then
          local path = package.searchpath("blaze.core", package.path)
@@ -119,19 +122,18 @@ local Emitter = { } do
          unit.imports["blaze.core"] = path
       end
 
+      self:write("local __unit__ = loadstring([[")
       self:writeln("local __core__ = require('blaze.core');")
-
-      self:writeln("local __unit__ = function(...)")
       self:writeln("module('', __core__.environ);")
       for n in node.body:children() do
          self.ctx:sync_line(n:get_line())
          n:accept(self)
          self:writeln(";")
       end
-      self:writeln("end")
-
       self:write_srcmap()
-      self:writeln("return __core__.run(__unit__)")
+      self:write("]], '="..unit.path.."');")
+
+      self:writefmt("require('blaze.core').run(__unit__);")
    end
 
    function Emitter:visitModuleDeclaration(node)
@@ -169,20 +171,10 @@ local Emitter = { } do
    function Emitter:visitLocalDeclaration(node, scope)
       self.ctx:sync_line(node:get_line())
       self:write('local ')
-      for i=1, #node.names do
-         node.names[i]:accept(self, scope)
-         if i < #node.names then
-            self:write(', ')
-         end
-      end
+      self:writelist(node.names, scope)
       if #node.inits > 0 then
-         self:write(' = ')
-         for i=1, #node.inits do
-            node.inits[i]:accept(self, scope)
-            if i < #node.inits then
-               self:write(', ')
-            end
-         end
+         self:write('=')
+         self:writelist(node.inits, scope)
       end
    end
 
@@ -191,14 +183,9 @@ local Emitter = { } do
       for i=1, #node.left do
          temp_list[i] = util.genid('__ref')
       end
-      self:write('local '..table.concat(temp_list, ', '))
-      self:write(' = ')
-      for i=1, #node.right do
-         node.right[i]:accept(self)
-         if i < #node.right then
-            self:write(', ')
-         end
-      end
+      self:write('local '..table.concat(temp_list, ','))
+      self:write('=')
+      self:writelist(node.right)
       self:writeln(';')
       for i=1, #node.left do
          node.left[i]:accept(self, temp_list[i])
@@ -318,12 +305,7 @@ local Emitter = { } do
    function Emitter:visitCallExpression(node, ...)
       node.callee:accept(self, nil, true)
       self:write('(')
-      for i=1, #node.arguments do
-         node.arguments[i]:accept(self)
-         if i < #node.arguments then
-            self:write(", ")
-         end
-      end
+      self:writelist(node.arguments)
       self:write(')')
    end
 
@@ -352,10 +334,10 @@ local Emitter = { } do
 
    function Emitter:visitClassNode(node)
       local name = node.name:get_symbol()
-      self:writefmt('local %s=class(%q', name, name)
+      local info = node.info
+      self:writefmt('%s=class(%q', name, name)
       self:writeln(',function(self, super)')
-      self:writeln('local '..name..'=self')
-      node.body:accept(self)
+      node.body:accept(self, info)
       self:write('end')
       self:writeln(')')
    end
@@ -365,7 +347,7 @@ local Emitter = { } do
          if p.init then
             local s = p.name:get_symbol()
             self:writeln("if "..s.." == nil then")
-            self:write(s.." = ")
+            self:write(s.."=")
             p.init:accept(self)
             self:writeln(';')
             self:writeln('end')
@@ -373,25 +355,41 @@ local Emitter = { } do
       end
    end
 
-   function Emitter:visitPropertyNode(node)
+   function Emitter:visitPropertyNode(node, info)
       local name = node.name:get_symbol()
-      local vtab = 'self.__members__'
-      self:writeln('function '..vtab..':__set_'..name..'(...)')
-      self:writeln('self.'..name..'=...')
-      self:writeln('end')
-      self:writeln('function '..vtab..':__get_'..name..'()')
-      self:writeln('return self.'..name)
-      self:writeln('end')
+      local vtab = 'self.__proto'
+      self:write('function '..vtab..':__set_'..name..'(...)')
+      if self.ctx:is_checked() and node.type then
+         local type_name = node.type.base:get_symbol()
+         if info:has_parameters() then
+            for i=1, #info.params do
+               if info.params[i] == type_name then
+                  self:writefmt(
+                     '__check__(%q,...,self.__type_info[%s])',name, i
+                  )
+                  break
+               end
+            end
+         end
+      end
+      self:write(' self.'..name..'=...')
+      self:writeln(' end')
+      self:write('function '..vtab..':__get_'..name..'()')
+      self:write(' return self.'..name)
+      self:writeln(' end')
    end
 
    function Emitter:visitMethodNode(node)
       local name = node:get_name()
-      local vtab = 'self.__members__'
+      local vtab = 'self.__proto'
       self:write('function '..vtab..':'..name..'(')
       node.head:accept(self)
       self:writeln(')')
       write_param_inits(self, node.head)
       node.body:accept(self)
+      self:writeln('end')
+      self:writeln('function '..vtab..':__get_'..name..'()')
+      self:writeln('return function(...) return self:'..name..'(...) end')
       self:writeln('end')
    end
 
@@ -413,12 +411,7 @@ local Emitter = { } do
       self:writeln(' end')
    end
    function Emitter:visitParameterList(list, ...)
-      for i=1, #list do
-         list[i]:accept(self, ...)
-         if i < #list then
-            self:write(', ')
-         end
-      end
+      self:writelist(list, ...)
    end
    function Emitter:visitSignatureNode(node, ...)
       node.params:accept(self, ...)
@@ -433,16 +426,25 @@ local Emitter = { } do
    function Emitter:visitNewExpression(node)
       self:write('new(')
       node.base:accept(self)
+      if node.types then
+         self:write(',')
+         node.types:accept(self)
+      else
+         self:write(',nil')
+      end
       if #node.arguments > 0 then
          self:write(',')
-         for i=1, #node.arguments do
-            node.arguments[i]:accept(self)
-            if i < #node.arguments then
-               self:write(',')
-            end
-         end
+         self:writelist(node.arguments)
       end
       self:write(')')
+   end
+   function Emitter:visitTypeName(node)
+      node:visit_children(self)
+   end
+   function Emitter:visitTypeList(node)
+      self:write('{')
+      self:writelist(node.elements)
+      self:write('}')
    end
 end
 

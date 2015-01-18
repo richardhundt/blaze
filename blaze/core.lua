@@ -31,7 +31,7 @@ Meta.__call = function(meta, ...)
    end
 end
 Meta.__index = Meta
-Meta.__members__ = { }
+Meta.__proto = { }
 Meta.__getindex = rawget
 Meta.__setindex = rawset
 Meta.__tostring = function(o)
@@ -51,9 +51,9 @@ Function.__tostring = function(self)
    return string.format('function(%s): %p', table.concat(params,', '), self)
 end
 function Function.__index(self, k)
-   return Function.__members__[k]
+   return Function.__proto[k]
 end
-Function.__members__.clone = function(self)
+Function.__proto.clone = function(self)
    local copy = loadstring(string.dump(self))
    local info = debug.getinfo(self, 'u')
    for i=1, info.nups do
@@ -62,12 +62,12 @@ Function.__members__.clone = function(self)
    setfenv(copy, getfenv(self))
    return copy
 end
-function Function.__members__.compose(f1, f2)
+function Function.__proto.compose(f1, f2)
    return function(...)
       return f1(f2(...))
    end
 end
-function Function.__members__.andthen(f1, f2)
+function Function.__proto.andthen(f1, f2)
    return f2:compose(f1)
 end
 function Function.__uadd(f1, f2)
@@ -77,8 +77,8 @@ debug.setmetatable(function() end, Function)
 
 local Module = setmetatable({ __name = 'Module' }, Meta)
 function Module.__index(self, k)
-   if self.__members__[k] then
-      return self.__members__[k]
+   if self.__proto[k] then
+      return self.__proto[k]
    end
    return nil
 end
@@ -96,14 +96,14 @@ function Module.__call(self, ...)
    local body = self.__body:clone()
    local name = self.__name .. '@' .. string.format('%p', module)
    local module = { __body = body, __name = name }
-   module.__members__ = { }
-   module.__include__ = { }
+   module.__proto = { }
+   module.__mixin = { }
 
    module.__is = function(self, that)
       if that == self then return true end
       local m = getmetatable(that)
       if m == Module then m = that end
-      if m and m.__include__ and m.__include__[self] then
+      if m and m.__mixin and m.__mixin[self] then
          return true
       end
       return false
@@ -116,14 +116,14 @@ end
 
 local function module(name, body)
    local module = { __name = name, __body = body }
-   module.__members__ = { }
-   module.__include__ = { }
+   module.__proto = { }
+   module.__mixin = { }
 
    module.__is = function(self, that)
       if that == self then return true end
       local m = getmetatable(that)
       if m == Module then m = that end
-      if m and m.__include__ and m.__include__[self] then
+      if m and m.__mixin and m.__mixin[self] then
          return true
       end
       return false
@@ -144,8 +144,8 @@ function Class.__call(class, ...)
    else
       obj = { }
       setmetatable(obj, class)
-      if class.__members__.self then
-         class.__members__.self(obj, ...)
+      if class.__proto.self then
+         class.__proto.self(obj, ...)
       end
    end
    return obj
@@ -157,8 +157,8 @@ end
 Object = setmetatable({ }, Class)
 Object.__name = 'Object'
 Object.__body = function(self) end
-Object.__members__ = { }
-Object.__include__ = { }
+Object.__proto = { }
+Object.__mixin = { }
 
 local special = {
    __add__ = { '__add', function(a, b) return a:__add__(b) end };
@@ -200,39 +200,37 @@ local function class(name, body, ...)
    if not base then base = Object end
 
    local class = { __name = name, __base = base, __body = body }
-   local __members__ = { }
-   local __include__ = { }
+   local __proto = { }
+   local __mixin = { }
 
-   setmetatable(__members__, { __index = base.__members__ })
-   setmetatable(__include__, { __index = base.__include__ })
+   setmetatable(__proto, { __index = base.__proto })
+   setmetatable(__mixin, { __index = base.__mixin })
 
-   class.__members__ = __members__
-   class.__include__ = __include__
+   class.__proto = __proto
+   class.__mixin = __mixin
 
    if getmetatable(base) == Module then
-      class.__include__[base] = true
+      class.__mixin[base] = true
    end
 
    function class.__index(o, k)
-      if __members__[k] then
-         return __members__[k]
+      if __proto[k] then
+         return __proto[k]
       end
-      if __members__.methodMissing then
-         return __members__.methodMissing(o, k)
+      if __proto.methodMissing then
+         return __proto.methodMissing(o, k)
       end
       return nil
    end
-   function __members__.toString(o)
+   function __proto.toString(o)
       -- return string.format('<%s>: %p', tostring(class.__name), o)
       return stringify(o)
    end
 
-   setfenv(body, setmetatable({ __self__ = class }, { __index = getfenv(2) }))
-
-   body(setmetatable(class, Class), base.__members__)
+   body(setmetatable(class, Class), base.__proto)
 
    for name, delg in pairs(special) do
-      if __members__[name] then
+      if __proto[name] then
          class[delg[1]] = delg[2]
       end
    end
@@ -255,18 +253,18 @@ function include(into, ...)
    local args = { ... }
    for i=1, #args do
       local from = args[i]
-      for k,v in pairs(from.__members__) do
-         into.__members__[k] = v
+      for k,v in pairs(from.__proto) do
+         into.__proto[k] = v
       end
       if from.__included then
          from:__included(into)
       end
-      if from.__include__ then
-         for k,v in pairs(from.__include__) do
-            into.__include__[k] = true
+      if from.__mixin then
+         for k,v in pairs(from.__mixin) do
+            into.__mixin[k] = true
          end
       end
-      into.__include__[from] = true
+      into.__mixin[from] = true
    end
 end
 
@@ -302,8 +300,8 @@ local function with(this, that)
    else
       local n = string.format("%s: %p", typeof(this), this).."+"..string.format("%s: %p", typeof(that), that)
       local m = module(n, function(self)
-         self.__include__[this_m] = true
-         self.__include__[that_m] = true
+         self.__mixin[this_m] = true
+         self.__mixin[that_m] = true
          for k,v in pairs(this) do self[k] = v end
          for k,v in pairs(that) do self[k] = v end
       end)
@@ -351,23 +349,23 @@ local Array = class("Array", function(self)
       end, self, -1
    end
 
-   function self.__members__:join(sep)
+   function self.__proto:join(sep)
       local t = { }
       for i=0, #self - 1 do
          t[#t + 1] = tostring(self[i])
       end
       return table.concat(t, sep)
    end
-   function self.__members__:push(val)
+   function self.__proto:push(val)
       self[self.length] = val
    end
-   function self.__members__:pop()
+   function self.__proto:pop()
       local last = self[self.length - 1]
       self[self.length - 1] = nil
       self.length = self.length - 1
       return last
    end
-   function self.__members__:shift()
+   function self.__proto:shift()
       local v = self[0]
       local l = self.length
       for i=1, l - 1 do
@@ -377,7 +375,7 @@ local Array = class("Array", function(self)
       self[l - 1] = nil
       return v
    end
-   function self.__members__:unshift(v)
+   function self.__proto:unshift(v)
       local l = self.length
       for i = l - 1, 0, -1 do
          self[i + 1] = self[i]
@@ -385,14 +383,14 @@ local Array = class("Array", function(self)
       self.length = l + 1
       self[0] = v
    end
-   function self.__members__:slice(offset, count)
+   function self.__proto:slice(offset, count)
       local a = Array()
       for i=offset, offset + count - 1 do
          a[a.length] = self[i]
       end
       return a
    end
-   function self.__members__:reverse()
+   function self.__proto:reverse()
       local a = Array()
       for i = self.length - 1, 0, -1 do
          a[a.length] = self[i]
@@ -404,7 +402,7 @@ local Array = class("Array", function(self)
       4592, 1968, 861, 336, 112, 48, 21, 7, 3, 1
    }
    local less = function(a, b) return a < b end
-   function self.__members__:sort(cmp, n)
+   function self.__proto:sort(cmp, n)
       n = n or self.length
       cmp = cmp or less
       for i=1, #gaps do
@@ -435,8 +433,8 @@ local Array = class("Array", function(self)
       return string.format("<Array>: %p", self)
    end
    function self.__index(a, k)
-      if Array.__members__[k] then
-         return Array.__members__[k]
+      if Array.__proto[k] then
+         return Array.__proto[k]
       end
       if type(k) == 'number' and k < 0 then
          return a[#a + k]
@@ -445,7 +443,7 @@ local Array = class("Array", function(self)
          local l, r = k.left, k.right
          if l < 0 then l = a.length + l end
          if r < 0 then r = a.length + r end
-         return Array.__members__.slice(a, l, r - l)
+         return Array.__proto.slice(a, l, r - l)
       end
       return nil
    end
@@ -455,14 +453,14 @@ local Array = class("Array", function(self)
       end
       rawset(a, k, v)
    end
-   function self.__members__:__tostring__()
+   function self.__proto:__tostring__()
       local b = { }
       for i=0, self.length - 1 do
          b[#b + 1] = tostring(self[i])
       end
       return '['..table.concat(b, ',')..']'
    end
-   function self.__members__:map(f)
+   function self.__proto:map(f)
       local b = Array()
       for i=0, self.length - 1 do
          b[i] = f(self[i])
@@ -532,7 +530,7 @@ end
 local String = class("String", function(self)
    local string = _G.string
    for k, v in pairs(string) do
-      self.__members__[k] = v
+      self.__proto[k] = v
    end
    self.__apply = function(_, v)
       return tostring(v)
@@ -545,10 +543,10 @@ local String = class("String", function(self)
          return string.sub(o, k, k)
       end
    end
-   self.__members__.self = function(self, that)
+   self.__proto.self = function(self, that)
       return tostring(that)
    end
-   self.__members__.split = function(self, sep, max, raw)
+   self.__proto.split = function(self, sep, max, raw)
       if not max then
          max = math.huge
       end
@@ -574,16 +572,16 @@ local String = class("String", function(self)
       out[#out + 1] = string.sub(self, pos)
       return out
    end
-   self.__members__.__tostring__ = tostring
+   self.__proto.__tostring__ = tostring
 end)
 debug.setmetatable("", String)
 
 local Error = class("Error", function(self)
-   self.__members__.self = function(self, mesg)
+   self.__proto.self = function(self, mesg)
       self.message = mesg
       self.trace = debug.traceback(mesg, 2)
    end
-   self.__members__.__tostring__ = function(self)
+   self.__proto.__tostring__ = function(self)
       return self.message
    end
 end)
@@ -745,7 +743,7 @@ TablePattern = class("TablePattern", function(self)
       return true
    end
 
-   self.__members__.bind = function(self, subj)
+   self.__proto.bind = function(self, subj)
       if subj == nil then return end
       local meta = self.meta
       local iter, stat, ctrl = pairs(self)
@@ -799,7 +797,7 @@ ArrayPattern = class("ArrayPattern", function(self)
       return true
    end
 
-   self.__members__.bind = function(self, subj)
+   self.__proto.bind = function(self, subj)
       if subj == nil then return end
       local iter, stat, ctrl = ipairs(self)
       return function(stat, ctrl)
@@ -832,7 +830,7 @@ ApplyPattern = class("ApplyPattern", function(self)
       return getmetatable(that) == self.base
    end
 
-   self.__members__.bind = function(self, subj)
+   self.__proto.bind = function(self, subj)
       if subj == nil then return end
       local i = 1
       local si, ss, sc
@@ -908,8 +906,8 @@ function Grammar.__tostring(self)
    return string.format("Grammar<%s>", self.__name)
 end
 function Grammar.__index(self, k)
-   if self.__members__[k] then
-      return self.__members__[k]
+   if self.__proto[k] then
+      return self.__proto[k]
    end
    return nil
 end
@@ -918,27 +916,27 @@ function Grammar.__call(self, subj, ...)
 end
 
 local function grammar(name, body, base)
-   local __members__ = { }
-   local __include__ = { }
+   local __proto = { }
+   local __mixin = { }
 
    if not base then base = Object end
 
    local gram = setmetatable({
-      __name      = name,
-      __body      = body,
-      __base      = base,
-      __members__ = __members__,
-      __include__ = __include__
+      __name  = name,
+      __body  = body,
+      __base  = base,
+      __proto = __proto,
+      __mixin = __mixin
    }, Grammar)
 
    setfenv(body, setmetatable({ }, { __index = getfenv(2) }))
 
    include(gram, base)
 
-   body(gram, base.__members__)
+   body(gram, base.__proto)
 
    local patt = { }
-   for k, v in pairs(__members__) do
+   for k, v in pairs(__proto) do
       if lpeg.type(v) == 'pattern' then
          patt[k] = v
       end
@@ -1051,15 +1049,15 @@ local UserData  = setmetatable({ __name = 'UserData'  }, Meta)
 local Coroutine = setmetatable({ __name = 'Coroutine' }, Meta)
 local CData     = setmetatable({ __name = 'CData'     }, Meta)
 
-Table.__members__ = { }
-Table.__index = Table.__members__
+Table.__proto = { }
+Table.__index = Table.__proto
 function Table.__apply(self, proto)
    return setmetatable({ proto }, self)
 end
-function Table.__members__:__getindex(key)
+function Table.__proto:__getindex(key)
    return self[1][key]
 end
-function Table.__members__:__setindex(key, val)
+function Table.__proto:__setindex(key, val)
    self[1][key] = val
 end
 
@@ -1258,8 +1256,8 @@ local function new(base, info, ...)
    if info then
       inst.__type_info = info
    end
-   if base.__members__.self then
-      base.__members__.self(inst, ...)
+   if base.__proto.self then
+      base.__proto.self(inst, ...)
    end
    return inst
 end

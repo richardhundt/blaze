@@ -8,10 +8,11 @@ local Emitter = require("blaze.lang.emitter")
 local Context = { } do
    Context.__index = Context
 
-   function Context.new()
+   function Context.new(opts)
       local self = setmetatable({
          file = "";
          line = 0;
+         opts = opts or { };
       }, Context)
 
       self.universe = model.Universe.new()
@@ -54,18 +55,19 @@ local Context = { } do
       os.exit(1)
    end
 
+   function Context:is_checked()
+      return self.opts.checked == true
+   end
 end
 
 local Compiler = { } do
-
    Compiler.__index = Compiler
-
-   function Compiler.new(ctx)
-      return setmetatable({ }, self)
+   function Compiler.new(opts)
+      return setmetatable({ opts = opts or { } }, Compiler)
    end
 
    function Compiler:compile(path)
-      local ctx = Context.new(path)
+      local ctx = Context.new(self.opts)
       local out =
          ctx.reader:spawn()
             :pipe(ctx.parser:spawn())
