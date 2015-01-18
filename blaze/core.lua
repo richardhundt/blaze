@@ -35,7 +35,7 @@ Meta.__proto = { }
 Meta.__getindex = rawget
 Meta.__setindex = rawset
 Meta.__tostring = function(o)
-   if o.__tostring__ then return o:__tostring__() end
+   if o.toString then return o:toString() end
    return tostring(rawget(o, '__name') or type(o))
 end
 
@@ -182,8 +182,11 @@ local special = {
 local function stringify(o)
    local m = getmetatable(o)
    local b = { }
+   -- XXX: this wants a reflection API
    for k,v in pairs(o) do
-      b[#b + 1] = tostring(k) .. "=" .. tostring(v)
+      if k ~= '__info' then
+         b[#b + 1] = tostring(k) .. "=" .. tostring(v)
+      end
    end
    return tostring(m) .. "(" .. table.concat(b, ",") .. ")"
 end
@@ -427,8 +430,8 @@ local Array = class("Array", function(self)
       return a.length
    end
    function self.__tostring(a)
-      if a.__tostring__ then
-         return a:__tostring__()
+      if a.toString then
+         return a:toString()
       end
       return string.format("<Array>: %p", self)
    end
@@ -453,7 +456,7 @@ local Array = class("Array", function(self)
       end
       rawset(a, k, v)
    end
-   function self.__proto:__tostring__()
+   function self.__proto:toString()
       local b = { }
       for i=0, self.length - 1 do
          b[#b + 1] = tostring(self[i])
@@ -572,7 +575,7 @@ local String = class("String", function(self)
       out[#out + 1] = string.sub(self, pos)
       return out
    end
-   self.__proto.__tostring__ = tostring
+   self.__proto.toString = tostring
 end)
 debug.setmetatable("", String)
 
@@ -581,7 +584,7 @@ local Error = class("Error", function(self)
       self.message = mesg
       self.trace = debug.traceback(mesg, 2)
    end
-   self.__proto.__tostring__ = function(self)
+   self.__proto.toString = function(self)
       return self.message
    end
 end)
@@ -1197,6 +1200,31 @@ local function __in__(names, expr)
    return unpack(t, 1, #names)
 end
 
+local function traceback(lvl)
+   local buf = { }
+   while true do
+      local info = debug.getinfo(lvl, 'nlS')
+      if info then
+         local name = info.name
+         local what = info.namewhat
+         local file = info.short_src
+         local line = info.currentline
+         local map  = __magic__._MAPS[file]
+         if map then
+            name = map[name] or name or '<main>'
+            line = map[line]
+            buf[#buf + 1] = string.format(
+               "%s:%s: [%s] %s", file, line, what, name
+            )
+         end
+      else
+         break
+      end
+      lvl = lvl + 1
+   end
+   return "\t"..table.concat(buf, "\n\t")
+end
+
 local patterns = {
    "^(.-):(%d+): ([^']+)'([^']+)'(.-)$",
    "^(.-):(%d+): (.-)$"
@@ -1232,7 +1260,7 @@ local function errfunc(e)
             local n = map[name] or name
             local x = xtra
             local m = string.format(fmt,f,l,m,n,x)
-            local s = m .. "\n" .. debug.traceback()
+            local s = m .. "\n" .. traceback(2)
             print(s)
             return s
          else
@@ -1254,7 +1282,7 @@ end
 local function new(base, info, ...)
    local inst = setmetatable({ }, base)
    if info then
-      inst.__type_info = info
+      inst.__info = info
    end
    if base.__proto.self then
       base.__proto.self(inst, ...)

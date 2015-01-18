@@ -375,8 +375,9 @@ function defs.classDecl(name, args, base, body)
    return tree.ClassNode.new(name, args, base, body)
 end
 
-function defs.classMember(deco, node)
+function defs.classMember(deco, scope, node)
    node:set_decorators(deco)
+   node.is_static = scope == 'static'
    return node
 end
 
@@ -895,15 +896,15 @@ local patt = [=[
    word     <- (%alpha / "_" / "$" / "?") (%alnum / "_" / "$" / "!" / "?")*
 
    reserved <- (
-      "let" / "function" / "nil" / "true" / "false" / "return"
-      / "break" / "goto" / "do" / "for" / "in" / "take" / "has"
+      "let" / "nil" / "true" / "false" / "return"
+      / "break" / "goto" / "do" / "for" / "in" / "take"
       / "while" / "repeat" / "until" / "if" / "else"
    ) <idsafe>
 
    keyword  <- (
-      <reserved> / "class" / "module" / "continue" / "super"
-      / "import" / "export" / "is" / "as"
-      / "include" / "grammar" / "given" / "case" / "with"
+      <reserved> / "class" / "trait" / "module" / "continue" / "super"
+      / "import" / "export" / "is" / "as" / "static" / "grammar"
+      / "given" / "case" / "with"
    ) <idsafe>
 
    sep <- <bcomment>? (<nl> / ";" / <lcomment>) / <ws> <sep>?
@@ -958,7 +959,6 @@ local patt = [=[
    literal <- ( <number> / <astring> / <boolean> ) -> literal
 
    in  <- "in" <idsafe>
-   end <- "}"
 
    module_decl <- (
       "module" <idsafe> s {| <module_path> |}
@@ -1146,9 +1146,9 @@ local patt = [=[
    )) -> stmt
 
    class_member <- (
-      {| (<decorator> (s <decorator>)* s)? |} (
-         <coro_decl> / <meth_decl> / <prop_decl>
-      )
+      {| (<decorator> (s <decorator>)* s)? |}
+      ({"static" <idsafe>} s / '' -> 'virtual')
+      (<coro_decl> / <meth_decl> / <prop_decl>)
    ) -> classMember
 
    class_heritage <- (

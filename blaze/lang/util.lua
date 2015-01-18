@@ -92,15 +92,31 @@ function export.fold_right(list, func)
    return accu
 end
 
+local lua_reserved = {
+   ['elseif'] = true,
+   ['then'] = true,
+   ['local'] = true,
+   ['function'] = true,
+}
 function export.mangle(name)
-   return name:gsub('[^%w_]', function(c)
+   local n = string.match(name, '^_*(.-)$')
+   if lua_reserved[n] then
+      return ('_'..name):gsub('[^%w]', function(c)
+         return '_'..string.format("%.2x",string.byte(c))
+      end)
+   end
+   return name:gsub('[^%w]', function(c)
       return '_'..string.format("%.2x",string.byte(c))
    end)
 end
 function export.demangle(name)
-   return name:gsub('_(%x%x)', function(c)
+   local n = name:gsub('_(%x%x)', function(c)
       return string.char(tonumber(c, 16))
    end)
+   if lua_reserved[string.match(n, '^_*(.-)$')] then
+      return n:sub(1)
+   end
+   return n
 end
 function export.mixin(this, that)
    for k,v in pairs(that) do

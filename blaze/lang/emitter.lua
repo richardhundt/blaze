@@ -74,7 +74,7 @@ local Emitter = { } do
          end
       end
       local map = table.concat(buf, ",")
-      self:writeln('__core__._MAPS["'..self.unit.path..'"]={'..map..'};')
+      self:write('__core__._MAPS["'..self.unit.path..'"]={'..map..'};')
    end
 
    function Emitter:output()
@@ -110,19 +110,20 @@ local Emitter = { } do
    function Emitter:visitChunkNode(node, unit)
       self.ctx:sync_line(node:get_line())
 
-      if false and not unit.imports["blaze.core"] then
+      if false and not self.imports["blaze.core"] then
          local path = package.searchpath("blaze.core", package.path)
          local file = assert(io.open(path))
          local code = file:read("*a")
          file:close()
-         code = string.dump(loadstring(code, "@"..path), not DEBUG)
-
-         self:writefmt("package.preload['blaze.core'] = loadstring(%s, '@%s')", util.quote(code), path)
-         self:writeln(";")
-         unit.imports["blaze.core"] = path
+         self:writefmt("package.preload['blaze.core']=loadstring(%s, '@%s')", util.quote(code), path)
+         self:write(";")
+         self.imports["blaze.core"] = path
       end
 
-      self:write("local __unit__ = loadstring([[")
+      --XXX: this isn't safely quoted - keep a per unit buffer and use
+      -- util.quote instead (caveat: it'll be harder to read the
+      -- generated output)
+      self:write("local __unit__ = assert(loadstring([=[")
       self:writeln("local __core__ = require('blaze.core');")
       self:writeln("module('', __core__.environ);")
       for n in node.body:children() do
@@ -130,10 +131,11 @@ local Emitter = { } do
          n:accept(self)
          self:writeln(";")
       end
+      self:write("]=], '="..unit.path.."'));")
+      self:write('local __core__=require("blaze.core");')
       self:write_srcmap()
-      self:write("]], '="..unit.path.."');")
 
-      self:writefmt("require('blaze.core').run(__unit__);")
+      self:writefmt("__core__.run(__unit__);")
    end
 
    function Emitter:visitModuleDeclaration(node)
@@ -346,11 +348,11 @@ local Emitter = { } do
       for p in head.params:children() do
          if p.init then
             local s = p.name:get_symbol()
-            self:writeln("if "..s.." == nil then")
+            self:write("if "..s.." == nil then ")
             self:write(s.."=")
             p.init:accept(self)
-            self:writeln(';')
-            self:writeln('end')
+            self:write(';')
+            self:writeln(' end')
          end
       end
    end
@@ -358,14 +360,18 @@ local Emitter = { } do
    function Emitter:visitPropertyNode(node, info)
       local name = node.name:get_symbol()
       local vtab = 'self.__proto'
-      self:write('function '..vtab..':__set_'..name..'(...)')
+      if node.is_static then
+         self:write('function self:__set_'..name..'(...)')
+      else
+         self:write('function '..vtab..':__set_'..name..'(...)')
+      end
       if self.ctx:is_checked() and node.type then
          local type_name = node.type.base:get_symbol()
          if info:has_parameters() then
             for i=1, #info.params do
                if info.params[i] == type_name then
                   self:writefmt(
-                     '__check__(%q,...,self.__type_info[%s])',name, i
+                     '__check__(%q,...,self.__info[%s])',name, i
                   )
                   break
                end
@@ -374,7 +380,11 @@ local Emitter = { } do
       end
       self:write(' self.'..name..'=...')
       self:writeln(' end')
-      self:write('function '..vtab..':__get_'..name..'()')
+      if node.is_static then
+         self:write('function self:__get_'..name..'()')
+      else
+         self:write('function '..vtab..':__get_'..name..'()')
+      end
       self:write(' return self.'..name)
       self:writeln(' end')
    end
@@ -382,13 +392,21 @@ local Emitter = { } do
    function Emitter:visitMethodNode(node)
       local name = node:get_name()
       local vtab = 'self.__proto'
-      self:write('function '..vtab..':'..name..'(')
+      if node.is_static then
+         self:write('function self:'..name..'(')
+      else
+         self:write('function '..vtab..':'..name..'(')
+      end
       node.head:accept(self)
       self:writeln(')')
       write_param_inits(self, node.head)
       node.body:accept(self)
       self:writeln('end')
-      self:writeln('function '..vtab..':__get_'..name..'()')
+      if node.is_static then
+         self:writeln('function self:__get_'..name..'()')
+      else
+         self:writeln('function '..vtab..':__get_'..name..'()')
+      end
       self:writeln('return function(...) return self:'..name..'(...) end')
       self:writeln('end')
    end
@@ -419,7 +437,7 @@ local Emitter = { } do
    function Emitter:visitParameterNode(node, ...)
       self:write(node.name:get_symbol())
    end
-   function Emitter:visitRepeatStatement(node, ...)
+   function Emitter:visitReturnStatement(node, ...)
       self:write('return ')
       node.arguments:accept(self, ...)
    end
