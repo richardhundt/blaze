@@ -74,7 +74,7 @@ local Emitter = { } do
          end
       end
       local map = table.concat(buf, ",")
-      self:write('__core__._MAPS["'..self.unit.path..'"]={'..map..'};')
+      self:write('require("blaze.core")._MAPS["'..self.unit.path..'"]={'..map..'};')
    end
 
    function Emitter:output()
@@ -99,7 +99,7 @@ local Emitter = { } do
    end
 
    function Emitter:visitBlockNode(node, ...)
-      for n in node:children() do
+      for n in node.body:children() do
          self.ctx:sync_line(n:get_line())
          n:accept(self, ...)
          self:writeln(';')
@@ -115,27 +115,54 @@ local Emitter = { } do
          local file = assert(io.open(path))
          local code = file:read("*a")
          file:close()
-         self:writefmt("package.preload['blaze.core']=loadstring(%s, '@%s')", util.quote(code), path)
-         self:write(";")
+         self:write("package.preload['blaze.core']=")
+         self:writefmt("loadstring(%s, '@%s');", util.quote(code), path)
          self.imports["blaze.core"] = path
       end
 
       --XXX: this isn't safely quoted - keep a per unit buffer and use
       -- util.quote instead (caveat: it'll be harder to read the
       -- generated output)
-      self:write("local __unit__ = assert(loadstring([=[")
+      self:writefmt("package.preload[%q]=assert(loadstring([=[",unit.path)
       self:writeln("local __core__ = require('blaze.core');")
       self:writeln("module('', __core__.environ);")
-      for n in node.body:children() do
-         self.ctx:sync_line(n:get_line())
-         n:accept(self)
-         self:writeln(";")
-      end
-      self:write("]=], '="..unit.path.."'));")
-      self:write('local __core__=require("blaze.core");')
-      self:write_srcmap()
 
-      self:writefmt("__core__.run(__unit__);")
+      self:visitBlockNode(node)
+      self:writeln("return _M;")
+      self:write("]=], '="..unit.path.."'));")
+      self:write_srcmap()
+      if unit.main then
+         self:writefmt('require(%q)', unit.path)
+      end
+   end
+
+   function Emitter:visitImportStatement(node)
+      local path = node:get_path()
+      local alias_list, names_list = { }, { }
+      if #node.terms > 0 then
+         for i=1, #node.terms do
+            local t = node.terms[i]
+            local n = t.name:get_symbol()
+            local a
+            if t.alias then
+               if t.alias then
+                  a = t.alias:get_symbol()
+               else
+                  a = n
+               end
+            end
+            alias_list[#alias_list + 1] = a
+            names_list[#names_list + 1] = string.format('%q', n)
+         end
+      else
+         local unit = self.ctx.registry:get_info(node:get_path())
+         for name in unit:exports() do
+            alias_list[#alias_list + 1] = name
+            names_list[#names_list + 1] = string.format('%q', name)
+         end
+      end
+      self:write('local '..table.concat(alias_list, ',')..'=')
+      self:writefmt('import(%q,%s)', path, table.concat(names_list, ','))
    end
 
    function Emitter:visitModuleDeclaration(node)
@@ -181,6 +208,7 @@ local Emitter = { } do
    end
 
    function Emitter:visitAssignExpression(node)
+      self.ctx:sync_line(node:get_line())
       local temp_list = { }
       for i=1, #node.left do
          temp_list[i] = util.genid('__ref')
@@ -188,7 +216,7 @@ local Emitter = { } do
       self:write('local '..table.concat(temp_list, ','))
       self:write('=')
       self:writelist(node.right)
-      self:writeln(';')
+      self:write(';')
       for i=1, #node.left do
          node.left[i]:accept(self, temp_list[i])
          if i < #node.left then
@@ -200,6 +228,7 @@ local Emitter = { } do
    function Emitter:visitExpressionStatement(node, ...)
       self.ctx:sync_line(node.line)
       node:visit_children(self, ...)
+      --self:writeln(';')
    end
 
    function Emitter:visitMemberExpression(node, bind, call)
@@ -230,15 +259,15 @@ local Emitter = { } do
             else
                self:write(':__setindex(')
                node.property:accept(self)
-               self:writeln(','..bind..')')
+               self:write(','..bind..')')
                self.srcmap['__setindex'] = '[]='
             end
          else
             local name = util.mangle(node.property:get_symbol())
             if node.namespace then
-               self:writeln('.'..name..'='..bind)
+               self:write('.'..name..'='..bind)
             else
-               self:writeln(':__set_'..name..'('..bind..')')
+               self:write(':__set_'..name..'('..bind..')')
                self.srcmap['__set_'..name] = name..'='
             end
          end
@@ -305,6 +334,7 @@ local Emitter = { } do
    end
 
    function Emitter:visitCallExpression(node, ...)
+      self.ctx:sync_line(node:get_line())
       node.callee:accept(self, nil, true)
       self:write('(')
       self:writelist(node.arguments)
@@ -339,6 +369,17 @@ local Emitter = { } do
       local info = node.info
       self:writefmt('%s=class(%q', name, name)
       self:writeln(',function(self, super)')
+
+      -- default to `Dynamic` for type params
+      self:write('self.__proto.__info={')
+      for i=1, #info.params do
+         self:write('Dynamic')
+         if i < #info.params then
+            self:write(',')
+         end
+      end
+      self:writeln('};')
+
       node.body:accept(self, info)
       self:write('end')
       self:writeln(')')
@@ -367,14 +408,12 @@ local Emitter = { } do
       end
       if self.ctx:is_checked() and node.type then
          local type_name = node.type.base:get_symbol()
-         if info:has_parameters() then
-            for i=1, #info.params do
-               if info.params[i] == type_name then
-                  self:writefmt(
-                     '__check__(%q,...,self.__info[%s])',name, i
-                  )
-                  break
-               end
+         for i=1, #info.params do
+            if info.params[i] == type_name then
+               self:writefmt(
+                  '__check__(%q,...,self.__info[%s])', name, i
+               )
+               break
             end
          end
       end

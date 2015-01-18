@@ -289,6 +289,7 @@ local Unit = { } do
          path    = path;
          tree    = tree;
          imports = { };
+         entries = { };
       }, Unit)
    end
    function Unit:set_module(module)
@@ -298,9 +299,13 @@ local Unit = { } do
       return self.module
    end
    function Unit:define(name, info)
+      self.entries[name] = info
       return self.module:define(name, info)
    end
    function Unit:lookup(name)
+      if self.entries[name] then
+         return self.entries[name]
+      end
       local info = self.module:lookup(name)
       if info then
          return info
@@ -314,6 +319,9 @@ local Unit = { } do
    end
    function Unit:add_import(scope)
       self.imports[#self.imports + 1] = scope
+   end
+   function Unit:exports()
+      return pairs(self.entries)
    end
 end
 

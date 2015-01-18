@@ -54,20 +54,17 @@ local Definer = { } do
    function Definer:add_import(path)
       if not self.loaded[path] then
          self.loaded[path] = true
-         local item = {
-            path = path,
-            from = {
-               line = self.ctx:get_line(),
-               file = self.ctx:get_file(),
-            }
-         }
-         self.ctx.reader:enqueue(item)
+         local unit = model.Unit.new(path)
+         unit.from = self.unit
+         self.ctx.reader:enqueue(unit)
       end
    end
 
    function Definer:resolve(unit)
       local save_unit   = self.unit
       local save_module = self.module
+
+      unit:set_module(self.ctx.universe:get_module(""))
 
       print(tree.Dumper.dump(unit.tree))
       self.ctx:set_file(unit.path)
@@ -100,7 +97,7 @@ local Definer = { } do
       node.info = self.module
 
       for n in node:children() do
-         n:accept(self, self.module)
+         n:accept(self, self.unit)
       end
    end
 
@@ -111,10 +108,11 @@ local Definer = { } do
       if not ok then
          self.ctx:abort("import path not a constant string")
       end
-      self:add_import(path)
-
-      local unit = self.input()
-      self.unit:add_import(self:resolve(unit))
+      if not self.loaded[path] then
+         self:add_import(path)
+         local unit = self.input()
+         self.unit:add_import(self:resolve(unit))
+      end
    end
 
    function Definer:visitModuleStatement(node)

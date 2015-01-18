@@ -16,13 +16,13 @@ local Reader = { } do
    function Reader:spawn()
       return Process.new(function()
          while #self.queue > 0 do
-            local item = remove(self.queue, 1)
-            if item.from then
-               self.ctx:set_file(item.from.file)
-               self.ctx:set_line(item.from.line)
+            local unit = remove(self.queue, 1)
+            if unit.from then
+               self.ctx:set_file(unit.from.path)
+               self.ctx:set_line(unit.from.line)
             end
-            item.text = self:read(item.path)
-            yield(item)
+            unit.text = self:read(unit.path)
+            yield(unit)
          end
       end)
    end

@@ -76,6 +76,7 @@ local Compiler = { } do
             :pipe(ctx.emitter:spawn())
 
       local unit = model.Unit.new(path)
+      unit.main = true
       ctx.reader:enqueue(unit)
       return out:run()
    end

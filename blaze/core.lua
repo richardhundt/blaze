@@ -3,9 +3,6 @@ Copyright (C) 2013-2014 Richard Hundt and contributors.
 See Copyright Notice in blaze
 ]=]
 
-local loader = require("blaze.lang.loader").loader
-table.insert(package.loaders, 1, loader)
-
 local ffi  = require('ffi')
 local lpeg = require('lpeg')
 local null = ffi.cast('void*', 0x0)
@@ -38,6 +35,8 @@ Meta.__tostring = function(o)
    if o.toString then return o:toString() end
    return tostring(rawget(o, '__name') or type(o))
 end
+
+local Dynamic = setmetatable({ __name = 'Dynamic' }, Meta)
 
 local Function = setmetatable({ __name = 'Function' }, Meta)
 Function.__tostring = function(self)
@@ -1105,6 +1104,9 @@ local function _is_type(m_a, m_b)
 end
 
 function __is__(a, b)
+   if b == Dynamic then
+      return true
+   end
    if type(b) == 'table' and b.__is then
       return b:__is(a)
    end
@@ -1136,14 +1138,6 @@ local function typeof(a)
       return ffi.typeof(a)
    end
    return typemap[type(a)]
-end
-
-local loadchunk = require("blaze.lang.loader").loadchunk
-local function eval(chunk, env, ...)
-   eval = assert(loadchunk(chunk, "eval", { eval = true }))
-   env = env or getfenv(2)
-   setfenv(eval, env)
-   return eval(...)
 end
 
 local function check(name, expr, type)
@@ -1209,13 +1203,24 @@ local function traceback(lvl)
          local what = info.namewhat
          local file = info.short_src
          local line = info.currentline
+         local ltop = info.linedefined
+         local lbot = info.lastlinedefined
          local map  = __magic__._MAPS[file]
          if map then
             name = map[name] or name or '<main>'
             line = map[line]
-            buf[#buf + 1] = string.format(
-               "%s:%s: [%s] %s", file, line, what, name
-            )
+            ltop = map[ltop]
+            lbot = map[lbot]
+            if ltop then
+               buf[#buf + 1] = string.format(
+                  "%s:%s: [%s:%s-%s] %s",
+                  file, line, what, ltop, lbot, name
+               )
+            else
+               buf[#buf + 1] = string.format(
+                  "%s:%s: %s", file, line, name
+               )
+            end
          end
       else
          break
@@ -1295,6 +1300,7 @@ __magic__ = {
 
    -- builtin types
    Meta = Meta;
+   Dynamic = Dynamic;
    Nil = Nil;
    Number = Number;
    Boolean = Boolean;
@@ -1376,6 +1382,15 @@ setmetatable(__magic__, {
    end
 })
 
+table.insert(package.loaders, 1, function(path)
+   if path:sub(-4) == '.blz' then
+      local body = package.preload[path]
+      return function(...)
+         local _, exports = xpcall(body, errfunc, ...)
+         return exports
+      end
+   end
+end)
 package.loaded["blaze.core"] = __magic__
 return __magic__
 
