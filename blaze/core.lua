@@ -32,8 +32,6 @@ Meta.__call = function(meta, ...)
 end
 Meta.__index = Meta
 Meta.__members__ = { }
-Meta.__getters__ = { }
-Meta.__setters__ = { }
 Meta.__getindex = rawget
 Meta.__setindex = rawset
 Meta.__tostring = function(o)
@@ -79,24 +77,14 @@ debug.setmetatable(function() end, Function)
 
 local Module = setmetatable({ __name = 'Module' }, Meta)
 function Module.__index(self, k)
-   if self.__getters__[k] then
-      return self.__getters__[k](self)
-   end
    if self.__members__[k] then
       return self.__members__[k]
    end
    return nil
 end
-function Module.__newindex(self, k, v)
-   if self.__setters__[k] then
-      self.__setters__[k](self, v)
-   else
-      rawset(self, k, v)
-   end
-end
 function Module.__tostring(self)
-   if self.__tostring__ then
-      return self:__tostring__()
+   if self.toString then
+      return self:toString()
    else
       return string.format('%s', self.__name)
    end
@@ -108,8 +96,6 @@ function Module.__call(self, ...)
    local body = self.__body:clone()
    local name = self.__name .. '@' .. string.format('%p', module)
    local module = { __body = body, __name = name }
-   module.__getters__ = { }
-   module.__setters__ = { }
    module.__members__ = { }
    module.__include__ = { }
 
@@ -130,8 +116,6 @@ end
 
 local function module(name, body)
    local module = { __name = name, __body = body }
-   module.__getters__ = { }
-   module.__setters__ = { }
    module.__members__ = { }
    module.__include__ = { }
 
@@ -173,8 +157,6 @@ end
 Object = setmetatable({ }, Class)
 Object.__name = 'Object'
 Object.__body = function(self) end
-Object.__getters__ = { }
-Object.__setters__ = { }
 Object.__members__ = { }
 Object.__include__ = { }
 
@@ -194,7 +176,7 @@ local special = {
    __ipairs__ = { '__ipairs', function(a, b) return a:__ipairs__() end };
    __call__   = { '__call',   function(self, ...) return self:__call__(...) end };
    __each__   = { '__each',   function(self) return self:__each__() end };
-   __tostring__ = { '__tostring', function(self, ...) return self:__tostring__(...) end };
+   toString   = { '__tostring', function(self, ...) return self:toString(...) end };
 }
 
 local function stringify(o)
@@ -218,18 +200,12 @@ local function class(name, body, ...)
    if not base then base = Object end
 
    local class = { __name = name, __base = base, __body = body }
-   local __getters__ = { }
-   local __setters__ = { }
    local __members__ = { }
    local __include__ = { }
 
-   setmetatable(__getters__, { __index = base.__getters__ })
-   setmetatable(__setters__, { __index = base.__setters__ })
    setmetatable(__members__, { __index = base.__members__ })
    setmetatable(__include__, { __index = base.__include__ })
 
-   class.__getters__ = __getters__
-   class.__setters__ = __setters__
    class.__members__ = __members__
    class.__include__ = __include__
 
@@ -237,32 +213,16 @@ local function class(name, body, ...)
       class.__include__[base] = true
    end
 
-   function __getters__.__class(self)
-      return class
-   end
-
    function class.__index(o, k)
-      if __getters__[k] then
-         return __getters__[k](o)
-      end
       if __members__[k] then
          return __members__[k]
       end
-      if class.__getindex then
-         return class.__getindex(o, k)
+      if __members__.methodMissing then
+         return __members__.methodMissing(o, k)
       end
       return nil
    end
-   function class.__newindex(o, k, v)
-      if __setters__[k] then
-         __setters__[k](o, v)
-      elseif class.__setindex then
-         class.__setindex(o, k, v)
-      else
-         rawset(o, k, v)
-      end
-   end
-   function __members__.__tostring__(o)
+   function __members__.toString(o)
       -- return string.format('<%s>: %p', tostring(class.__name), o)
       return stringify(o)
    end
@@ -294,13 +254,7 @@ function include(into, ...)
 
    local args = { ... }
    for i=1, #args do
-      local from = args[i] 
-      for k,v in pairs(from.__getters__) do
-         into.__getters__[k] = v
-      end
-      for k,v in pairs(from.__setters__) do
-         into.__setters__[k] = v
-      end
+      local from = args[i]
       for k,v in pairs(from.__members__) do
          into.__members__[k] = v
       end
@@ -954,20 +908,10 @@ function Grammar.__tostring(self)
    return string.format("Grammar<%s>", self.__name)
 end
 function Grammar.__index(self, k)
-   if self.__getters__[k] then
-      return self.__getters__[k](self)
-   end
    if self.__members__[k] then
       return self.__members__[k]
    end
    return nil
-end
-function Grammar.__newindex(self, k, v)
-   if self.__setters__[k] then
-      self.__setters__[k](self, v)
-   else
-      rawset(self, k, v)
-   end
 end
 function Grammar.__call(self, subj, ...)
    return self:__match(subj, ...)
@@ -975,8 +919,6 @@ end
 
 local function grammar(name, body, base)
    local __members__ = { }
-   local __getters__ = { }
-   local __setters__ = { }
    local __include__ = { }
 
    if not base then base = Object end
@@ -986,8 +928,6 @@ local function grammar(name, body, base)
       __body      = body,
       __base      = base,
       __members__ = __members__,
-      __getters__ = __getters__,
-      __setters__ = __setters__,
       __include__ = __include__
    }, Grammar)
 
@@ -1313,8 +1253,15 @@ local function run(main, ...)
    xpcall(main, errfunc, ...)
 end
 
-local function new(base, ...)
-   return base(...)
+local function new(base, info, ...)
+   local inst = setmetatable({ }, base)
+   if info then
+      inst.__type_info = info
+   end
+   if base.__members__.self then
+      base.__members__.self(inst, ...)
+   end
+   return inst
 end
 
 __magic__ = {
@@ -1385,6 +1332,7 @@ __magic__ = {
    __bor__ = bit.bor;
    __bxor__ = bit.bxor;
    __take__ = coroutine.yield;
+   __set_type_info__ = set_type_info;
    run = run;
    new = new;
 
