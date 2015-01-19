@@ -38,7 +38,7 @@ local Emitter = { } do
             buf[#buf + 1] = self:make_srcmap(unit)
             if unit.main then
                buf[#buf + 1] = string.format(
-                  'require(%q);', unit.path
+                  'require("blaze.core").run(%q, ...);', unit.path
                )
             end
          end

@@ -1280,8 +1280,12 @@ local function errfunc(e)
    end
 end
 
-local function run(main, ...)
-   xpcall(main, errfunc, ...)
+local function run(path, ...)
+   local unit = require(path)
+   if not unit.main then
+      error("no main defined in '"..path..'"')
+   end
+   xpcall(unit.main, errfunc, ...)
 end
 
 local function new(base, info, ...)

@@ -26,9 +26,9 @@ THE SOFTWARE.
 local Compiler = require("blaze.lang.compiler")
 local function runopt(opts)
    local compiler = Compiler.new({ checked = true }) -- XXX: temporary
-   local code = compiler:compile(opts[1])
-   local out = io.open(opts[2] or 'out.lua', 'wb')
-   out:write(code)
+   local code = loadstring(compiler:compile(opts[1]), '='..opts[1])
+   local out  = io.open(opts[2] or 'out.raw', 'wb')
+   out:write(string.dump(code, true))
    out:close()
 end
 runopt(arg)
