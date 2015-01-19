@@ -15,17 +15,34 @@ local Emitter = { } do
          level   = 0;
          dent    = '   ';
          margin  = '';
-         buffer  = { };
-         srcmap  = { };
       }, Emitter)
    end
 
    function Emitter:spawn()
       return Process.new(function(input)
+         local queue = { }
          for unit in input do
             self:build(unit)
+            queue[#queue + 1] = unit
          end
-         yield(self:output())
+         local buf = { }
+         for i=1, #queue do
+            local unit = queue[i]
+            local code = table.concat(unit.buffer)
+            local func = assert(loadstring(code, '='..unit.path))
+            local dump = string.dump(func, false)
+            buf[#buf + 1] = string.format(
+               'package.preload[%q]=loadstring(%s,"=%s");',
+               unit.path, util.quote(dump), unit.path
+            )
+            buf[#buf + 1] = self:make_srcmap(unit)
+            if unit.main then
+               buf[#buf + 1] = string.format(
+                  'require(%q);', unit.path
+               )
+            end
+         end
+         yield(table.concat(buf))
       end)
    end
 
@@ -40,12 +57,12 @@ local Emitter = { } do
    end
 
    function Emitter:writeln(str)
-      self.buffer[#self.buffer + 1] = (str or "").."\n"
-      self.srcmap[#self.srcmap + 1] = self.ctx.line
+      self.unit.buffer[#self.unit.buffer + 1] = (str or "").."\n"
+      self.unit.srcmap[#self.unit.srcmap + 1] = self.ctx.line
    end
 
    function Emitter:write(str)
-      self.buffer[#self.buffer + 1] = str
+      self.unit.buffer[#self.unit.buffer + 1] = str
    end
    function Emitter:writefmt(fmt, ...)
       self:write(fmt:format(...))
@@ -59,31 +76,30 @@ local Emitter = { } do
       end
    end
 
-   function Emitter:write_srcmap(idx)
+   function Emitter:make_srcmap(unit)
       local buf = { }
       local seen = { }
       local prev
-      for i=1, #self.srcmap do
-         local line = self.srcmap[i]
+      for i=1, #unit.srcmap do
+         local line = unit.srcmap[i]
          seen[i] = true
          buf[#buf + 1] = tostring(line)
       end
-      for k,v in pairs(self.srcmap) do
+      for k,v in pairs(unit.srcmap) do
          if not seen[k] then
             buf[#buf + 1] = k.."="..string.format("%q", v)
          end
       end
       local map = table.concat(buf, ",")
-      self:write('require("blaze.core")._MAPS["'..self.unit.path..'"]={'..map..'};')
+      return 'require("blaze.core")._MAPS["'..unit.path..'"]={'..map..'};'
    end
 
    function Emitter:output()
-      return table.concat(self.buffer)
+      return table.concat(self.unit.buffer)
    end
 
    function Emitter:build(unit)
       self.unit = unit
-      self.srcmap = { }
       unit.tree:accept(self, unit)
    end
 
@@ -110,30 +126,27 @@ local Emitter = { } do
    function Emitter:visitChunkNode(node, unit)
       self.ctx:sync_line(node:get_line())
 
-      if false and not self.imports["blaze.core"] then
+      if not self.imports["blaze.core"] then
          local path = package.searchpath("blaze.core", package.path)
          local file = assert(io.open(path))
          local code = file:read("*a")
          file:close()
+         local func = assert(loadstring(code, '@'..path))
+         local dump = string.dump(func, false)
          self:write("package.preload['blaze.core']=")
-         self:writefmt("loadstring(%s, '@%s');", util.quote(code), path)
+         self:writefmt("loadstring(%s, '@%s');", util.quote(dump), path)
          self.imports["blaze.core"] = path
       end
 
-      --XXX: this isn't safely quoted - keep a per unit buffer and use
-      -- util.quote instead (caveat: it'll be harder to read the
-      -- generated output)
-      self:writefmt("package.preload[%q]=assert(loadstring([=[",unit.path)
       self:writeln("local __core__ = require('blaze.core');")
+
+      -- start off in the default namespace
       self:writeln("module('', __core__.environ);")
 
       self:visitBlockNode(node)
+
+      -- we're using the builtin `module` function
       self:writeln("return _M;")
-      self:write("]=], '="..unit.path.."'));")
-      self:write_srcmap()
-      if unit.main then
-         self:writefmt('require(%q)', unit.path)
-      end
    end
 
    function Emitter:visitImportStatement(node)
@@ -143,14 +156,7 @@ local Emitter = { } do
          for i=1, #node.terms do
             local t = node.terms[i]
             local n = t.name:get_symbol()
-            local a
-            if t.alias then
-               if t.alias then
-                  a = t.alias:get_symbol()
-               else
-                  a = n
-               end
-            end
+            local a = t.alias and t.alias:get_symbol() or n
             alias_list[#alias_list + 1] = a
             names_list[#names_list + 1] = string.format('%q', n)
          end
@@ -189,7 +195,7 @@ local Emitter = { } do
       end
       local msym = util.mangle(name)
       if msym ~= name then
-         self.srcmap[msym] = name
+         self.unit.srcmap[msym] = name
       end
       self:write(msym)
       if bind then
@@ -260,7 +266,7 @@ local Emitter = { } do
                self:write(':__setindex(')
                node.property:accept(self)
                self:write(','..bind..')')
-               self.srcmap['__setindex'] = '[]='
+               self.unit.srcmap['__setindex'] = '[]='
             end
          else
             local name = util.mangle(node.property:get_symbol())
@@ -268,7 +274,7 @@ local Emitter = { } do
                self:write('.'..name..'='..bind)
             else
                self:write(':__set_'..name..'('..bind..')')
-               self.srcmap['__set_'..name] = name..'='
+               self.unit.srcmap['__set_'..name] = name..'='
             end
          end
       else
@@ -281,7 +287,7 @@ local Emitter = { } do
                self:write(':__getindex(')
                node.property:accept(self)
                self:write(')')
-               self.srcmap['__getindex'] = '[]'
+               self.unit.srcmap['__getindex'] = '[]'
             end
          else
             local name = util.mangle(node.property:get_symbol())
@@ -289,7 +295,7 @@ local Emitter = { } do
                self:write("."..name)
             else
                self:write(':__get_'..name..'()')
-               self.srcmap['__get_'..name] = name
+               self.unit.srcmap['__get_'..name] = name
             end
          end
       end

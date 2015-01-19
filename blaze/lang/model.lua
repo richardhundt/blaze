@@ -290,6 +290,8 @@ local Unit = { } do
          tree    = tree;
          imports = { };
          entries = { };
+         buffer  = { };
+         srcmap  = { };
       }, Unit)
    end
    function Unit:set_module(module)
