@@ -6,7 +6,7 @@ local model   = require("blaze.lang.model")
 local scope   = require("blaze.lang.scope")
 
 do
-   --[[
+   ---[[
    local predef = {
       'Nil','Number','Boolean', 'String', 'Function', 'Coroutine', 'Range',
       'UserData', 'Table', 'Array', 'Error', 'Trait', 'Class', 'Object',
@@ -17,12 +17,11 @@ do
    }
 
    for k,v in pairs(_G) do
-      scope.CORE:define(k, { line = 0 })
+      scope.CORE:define(k, { })
    end
 
-   for i=1, #predef do
-      scope.CORE:define(predef[i], { line = 0 })
-   end
+   scope.CORE:define('Number', model.NumberType)
+   scope.CORE:define('String', model.StringType)
    --]]
 end
 
@@ -69,6 +68,7 @@ local Definer = { } do
       print(tree.Dumper.dump(unit.tree))
       self.ctx:set_file(unit.path)
 
+      unit:add_import(scope.CORE)
       self.loaded[unit.path] = unit
       self.queue[#self.queue + 1] = unit
 
@@ -172,7 +172,7 @@ local Definer = { } do
       local method = model.MethodInfo.new(name)
       node.info = method
 
-      parent:add_member(name, method)
+      parent:add_method(name, method)
 
       for n in node:children() do
          n:accept(self, method)
@@ -207,14 +207,17 @@ local Definer = { } do
       local param = model.ParamInfo.new(name)
 
       param:set_type(node:get_type())
-      param:set_init(node:get_init())
       param:set_rest(node:is_rest())
 
       parent:add_parameter(name, param)
    end
 
-   function Definer:visitPropertyNode(node, ...)
-      self:visitNode(node, ...) -- TODO
+   function Definer:visitPropertyNode(node, parent)
+      self:visitNode(node)
+      local name = node.name:get_symbol()
+      local prop = model.VarInfo.new(name)
+      node.info = prop
+      parent:add_field(name, prop)
    end
 
    function Definer:visitBlockNode(node, ...)

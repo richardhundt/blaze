@@ -339,6 +339,9 @@ local Emitter = { } do
       end
    end
 
+   -- Foo.Bar<Int>()
+   -- -> Foo_Bar_3cInt_3e = __make__(Foo.Bar, Int)
+   -- -> Foo_Bar_3cInt_3e()
    function Emitter:visitCallExpression(node, ...)
       self.ctx:sync_line(node:get_line())
       node.callee:accept(self, nil, true)
@@ -423,14 +426,17 @@ local Emitter = { } do
             end
          end
       end
-      self:write(' self.'..name..'=...')
+
+      local slot = info:field_index(name)
+      assert(slot)
+      self:write(' self['..slot..']=...')
       self:writeln(' end')
       if node.is_static then
          self:write('function self:__get_'..name..'()')
       else
          self:write('function '..vtab..':__get_'..name..'()')
       end
-      self:write(' return self.'..name)
+      self:write(' return self['..slot..']')
       self:writeln(' end')
    end
 
@@ -485,6 +491,41 @@ local Emitter = { } do
    function Emitter:visitReturnStatement(node, ...)
       self:write('return ')
       node.arguments:accept(self, ...)
+   end
+   local binops = {
+      ["+"] = "+",
+      ["-"] = "-",
+      ["*"] = "*",
+      ["/"] = "/",
+      ["%"] = "%",
+      ["**"] = "^",
+   }
+   local bitops = {
+      ["&"] = "__band__",
+      ["|"] = "__bor__",
+      ["^"] = "__bxor__",
+      ["<<"] = "__blshift__",
+      [">>"] = "__brshift__",
+      [">>>"] = "__barshift__",
+   }
+   function Emitter:visitBinaryExpression(node, ...)
+      local op = node.operator
+      if binops[op] then
+         self:write("(")
+         node.left:accept(self, ...)
+         self:write(binops[op])
+         node.right:accept(self, ...)
+         self:write(")")
+      elseif bitops[op] then
+         self:write(bitops[op])
+         self:write("(")
+         node.left:accept(self, ...)
+         self:write(",")
+         node.right:accept(self, ...)
+         self:write(")")
+      else
+         error("unknown binary operator: '"..op.."'")
+      end
    end
    function Emitter:visitNewExpression(node)
       self:write('new(')

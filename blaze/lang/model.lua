@@ -31,94 +31,6 @@ local TypeInfo = { kind = "type" } do
    end
 end
 
-local ValueType = { kind = "ValueType" } do
-   ValueType.__index = ValueType
-   function ValueType:add_operator(oper, desc)
-      self.members[oper] = desc
-   end
-end
-
-local AnyType = { kind = "AnyType" } do
-   function AnyType:is_compat(that)
-      return true
-   end
-end
-
-local NilType = { kind = "NilType" } do
-   function NilType:is_compat(that)
-      if that == NilType then
-         return true
-      end
-   end
-end
-
-local NullType = { kind = "NullType" } do
-   function NullType:is_compat(that)
-      return that.kind == "NullType" or that.kind == "AnyType"
-   end
-end
-
-local NumberType = { kind = "NumberType" } do
-   setmetatable(NumberType, ValueType)
-
-   NumberType.members = { }
-
-   NumberType:add_operator("-_", {
-      native  = true,
-      params  = { NumberType },
-      returns = { NumberType }
-   })
-
-   NumberType:add_operator("+", {
-      native  = true,
-      params  = { NumberType, NumberType },
-      returns = { NumberType }
-   })
-
-   NumberType:add_operator("-", {
-      native  = true,
-      params  = { NumberType, NumberType },
-      returns = { NumberType }
-   })
-
-   NumberType:add_operator("*", {
-      native  = true,
-      params  = { NumberType, NumberType },
-      returns = { NumberType }
-   })
-
-   NumberType:add_operator("/", {
-      native  = true,
-      params  = { NumberType, NumberType },
-      returns = { NumberType }
-   })
-
-   NumberType:add_operator("%", {
-      native  = true,
-      params  = { NumberType, NumberType },
-      returns = { NumberType }
-   })
-
-   NumberType:add_operator("^", {
-      native  = true,
-      params  = { NumberType, NumberType },
-      returns = { NumberType }
-   })
-
-   function NumberType:is_compat(that)
-      return that.kind == "NumberType" or that.kind == "AnyType"
-   end
-end
-
-local StringType   = { kind = "StringType",   base = ValueType }
-local BooleanType  = { kind = "BooleanType",  base = ValueType }
-local FunctionType = { kind = "FunctionType", base = ValueType }
-local TableType    = { kind = "TableType",    base = ValueType }
-local ArrayType    = { kind = "ArrayType",    base = ValueType }
-local ClassType    = { kind = "ClassType",    base = ValueType }
-local TraitType    = { kind = "TraitType",    base = ValueType }
-local VoidType     = { kind = "VoidType" }
-
 local UnionType = { kind = "UnionType" } do
    function UnionType.new(a, b)
       return setmetatable({ a, b }, UnionType)
@@ -150,10 +62,10 @@ end
 
 local VarInfo = { kind = "variable" } do
    VarInfo.__index = setmetatable(VarInfo, Nested)
-   function VarInfo.new(name)
+   function VarInfo.new(name, type)
       return setmetatable({
          name = name,
-         type = AnyType,
+         type = type or AnyType,
       }, VarInfo)
    end
    function VarInfo:set_type(type)
@@ -172,8 +84,8 @@ end
 
 local ParamInfo = { kind = "parameter" } do
    ParamInfo.__index = setmetatable(ParamInfo, VarInfo)
-   function ParamInfo.new(name)
-      return setmetatable(VarInfo.new(name), ParamInfo)
+   function ParamInfo.new(...)
+      return setmetatable(VarInfo.new(...), ParamInfo)
    end
 
    function ParamInfo:set_type(expr)
@@ -198,11 +110,11 @@ end
 
 local FunctionInfo = { kind = "function" } do
    FunctionInfo.__index = setmetatable(FunctionInfo, Nested)
-   function FunctionInfo.new(name)
+   function FunctionInfo.new(name, params, returns)
       return setmetatable({
          name = name,
-         params = { },
-         returns = { },
+         params = params or { },
+         returns = returns or { },
       }, FunctionInfo)
    end
 
@@ -212,12 +124,15 @@ local FunctionInfo = { kind = "function" } do
    function FunctionInfo:add_return(info)
       self.returns[#self.returns + 1] = info
    end
+   function FunctionInfo:set_name(name)
+      self.name = name
+   end
 end
 
 local MethodInfo = { kind = "method" } do
    MethodInfo.__index = setmetatable(MethodInfo, FunctionInfo)
-   function MethodInfo.new(name)
-      return setmetatable(FunctionInfo.new(name), MethodInfo)
+   function MethodInfo.new(...)
+      return setmetatable(FunctionInfo.new(...), MethodInfo)
    end
 end
 
@@ -225,15 +140,22 @@ local TraitInfo = { kind = "trait" } do
    TraitInfo.__index = setmetatable(TraitInfo, Nested)
    function TraitInfo.new(name, base)
       return setmetatable({
-         name    = name;
-         base    = base;
-         params  = { };
-         members = { };
-         mixins  = { };
+         name      = name;
+         base      = base;
+         params    = { };
+         methods   = { };
+         fields    = { };
+         mixins    = { };
+         operators = { };
       }, TraitInfo)
    end
    function TraitInfo:has_parameters()
       return #self.params > 0
+   end
+
+   function TraitInfo:add_operator(oper, info)
+      self.operators[oper] = info
+      self.operators[#self.operators + 1] = oper
    end
 
    -- XXX: nominal only for now
@@ -242,33 +164,86 @@ local TraitInfo = { kind = "trait" } do
       self.params[name] = #self.params
    end
 
-   function TraitInfo:add_member(name, info)
-      self.members[name] = info
-      self.members[#self.members + 1] = name
+   function TraitInfo:add_method(name, info)
+      self.methods[name] = info
+      self.methods[#self.methods + 1] = name
       info:set_parent(self)
    end
-   function TraitInfo:find_member(name)
-      if self.members[name] then
-         return self.members[name]
+   function TraitInfo:find_method(name)
+      if self.method[name] then
+         return self.method[name]
       end
       if self.base then
-         return self.base:find_member(name)
+         return self.base:find_method(name)
       end
    end
-   function TraitInfo:member_pairs()
+   function TraitInfo:add_field(name, info)
+      self.fields[#self.fields + 1] = name
+      self.fields[name] = info
+   end
+   function TraitInfo:find_field(name)
+      if self.fields[name] then
+         return self.fields[name]
+      end
+      if self.base then
+         return self.base:find_field(name)
+      end
+   end
+   function TraitInfo:method_pairs()
       local i = 0
       return function()
          i = i + 1
-         local name = self.members[i]
+         local name = self.methods[i]
          if name then
-            return name, self.members[name]
+            return name, self.methods[name]
          end
       end
    end
-   function TraitInfo:add_mixin(other)
-      self.mixins[other] = true
-      for name, info in other:member_pairs() do
-         self:add_member(name, info)
+   function TraitInfo:field_pairs()
+      local i = 0
+      return function()
+         i = i + 1
+         local name = self.fields[i]
+         if name then
+            return name, self.fields[name]
+         end
+      end
+   end
+   function TraitInfo:computed_field_list()
+      local field_list = { }
+      local super_list = { }
+      local curr = self
+      while curr do
+         super_list[#super_list + 1] = curr
+         curr = curr.base
+      end
+      for i=#super_list, 1, -1 do
+         local base = super_list[i]
+         for i=1, #base.fields do
+            field_list[#field_list + 1] = base.fields[base.fields[i]]
+         end
+      end
+      return field_list
+   end
+   function TraitInfo:add_mixin(that)
+      self.mixins[that] = true
+      self.mixins[#self.mixins + 1] = that
+      for name, info in that:method_pairs() do
+         self:add_method(name, info)
+      end
+      for name, info in that:field_pairs() do
+         self:add_field(name, info)
+      end
+   end
+   function TraitInfo:set_base(that)
+      self.base = that
+   end
+   function TraitInfo:field_index(name)
+      local field_list = self:computed_field_list()
+      for i=1, #field_list do
+         if field_list[i].name == name then
+            return i
+         end
       end
    end
 end
@@ -369,11 +344,119 @@ local Universe = { } do
    end
 end
 
+local ValueType = { kind = "ValueType" } do
+   ValueType.__index = ValueType
+   function ValueType:add_operator(oper, desc)
+      self.members[oper] = desc
+   end
+   function ValueType:get_member(name)
+      return self.members[name]
+   end
+end
+
+local AnyType = { kind = "AnyType", name = "Any" } do
+   setmetatable(AnyType, ValueType)
+   AnyType.members = { }
+   function AnyType:is_compat(that)
+      return true
+   end
+end
+
+local NilType = { kind = "NilType", name = "Nil" } do
+   setmetatable(NilType, ValueType)
+   NilType.members = { }
+   function NilType:is_compat(that)
+      if that == NilType then
+         return true
+      end
+   end
+end
+
+local NullType = { kind = "NullType", name = "Null" } do
+   setmetatable(NullType, ValueType)
+   NullType.members = { }
+   function NullType:is_compat(that)
+      return that.kind == "NullType" or that.kind == "AnyType"
+   end
+end
+
+local NumberType = { kind = "NumberType", name = "Number" } do
+   setmetatable(NumberType, ValueType)
+
+   local unary_arith = {
+      kind = "operator",
+      params = { NumberType },
+      returns = { NumberType }
+   }
+
+   local infix_arith = {
+      kind = "operator",
+      params = { NumberType, NumberType },
+      returns = { NumberType }
+   }
+
+   NumberType.members = {
+      ['-_'] = unary_arith,
+      ['~_'] = unary_arith,
+      ['+'] = infix_arith,
+      ['-'] = infix_arith,
+      ['/'] = infix_arith,
+      ['*'] = infix_arith,
+      ['%'] = infix_arith,
+      ['**'] = infix_arith,
+      ['^'] = infix_arith,
+      ['&'] = infix_arith,
+      ['|'] = infix_arith,
+      ['<<'] = infix_arith,
+      ['>>'] = infix_arith,
+      ['>>>'] = infix_arith,
+   }
+
+   function NumberType:is_compat(that)
+      return that.kind == "NumberType" or that.kind == "AnyType"
+   end
+end
+
+local StringType = { kind = "StringType", name = 'String' } do
+   setmetatable(StringType, ValueType)
+   StringType.members = {
+      ["~"] = {
+         kind = "operator",
+         params = { StringType, StringType },
+         returns = { StringType }
+      },
+      ["sub"] = {
+         kind = "method",
+         params = { NumberType, NumberType },
+         returns = { StringType }
+      }
+   }
+   function StringType:is_compat(that)
+      return that == StringType or that == NumberType or that == AnyType
+   end
+end
+
+local BooleanType = { kind = "BooleanType",  base = ValueType }
+
+local TableType = { kind = "TableType",    base = ValueType } do
+
+end
+
+local FunctionType = { kind = "FunctionType", base = ValueType }
+local ArrayType    = { kind = "ArrayType",    base = ValueType }
+local ClassType    = { kind = "ClassType",    base = ValueType }
+local TraitType    = { kind = "TraitType",    base = ValueType }
+local VoidType     = { kind = "VoidType" }
+
 return {
    Registry = Registry,
    Universe = Universe,
    Unit = Unit,
    Module = Module,
+
+   NumberType = NumberType,
+   StringType = StringType,
+
    VarInfo = VarInfo,
    ParamInfo = ParamInfo,
    FunctionInfo = FunctionInfo,
