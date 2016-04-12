@@ -1,5 +1,6 @@
 local scope = require("blaze.lang.scope")
 
+-- holds mappings from nodes to their type info
 local Registry = { } do
    Registry.__index = Registry
    function Registry.new()
@@ -15,6 +16,7 @@ local Registry = { } do
    end
 end
 
+-- unused? (scope is probably what you want) 
 local Environ = { } do
    Environ.__index = Environ
    function Environ.new()
@@ -40,13 +42,13 @@ local UnionType = { kind = "UnionType" } do
    end
 end
 
-local Nested = { kind = "nested" } do
-   Nested.__index = setmetatable(Nested, TypeInfo)
-   function Nested:set_parent(parent)
+local NestedInfo = { kind = "nested" } do
+   NestedInfo.__index = setmetatable(NestedInfo, TypeInfo)
+   function NestedInfo:set_parent(parent)
       self.parent = parent
    end
 
-   function Nested:get_parent(kind)
+   function NestedInfo:get_parent(kind)
       local parent = self.parent
       if not kind then
          return parent
@@ -61,7 +63,7 @@ local Nested = { kind = "nested" } do
 end
 
 local VarInfo = { kind = "variable" } do
-   VarInfo.__index = setmetatable(VarInfo, Nested)
+   VarInfo.__index = setmetatable(VarInfo, NestedInfo)
    function VarInfo.new(name, type)
       return setmetatable({
          name = name,
@@ -109,7 +111,7 @@ local ParamInfo = { kind = "parameter" } do
 end
 
 local FunctionInfo = { kind = "function" } do
-   FunctionInfo.__index = setmetatable(FunctionInfo, Nested)
+   FunctionInfo.__index = setmetatable(FunctionInfo, NestedInfo)
    function FunctionInfo.new(name, params, returns)
       return setmetatable({
          name = name,
@@ -137,7 +139,7 @@ local MethodInfo = { kind = "method" } do
 end
 
 local TraitInfo = { kind = "trait" } do
-   TraitInfo.__index = setmetatable(TraitInfo, Nested)
+   TraitInfo.__index = setmetatable(TraitInfo, NestedInfo)
    function TraitInfo.new(name, base)
       return setmetatable({
          name      = name;
@@ -246,6 +248,15 @@ local TraitInfo = { kind = "trait" } do
          end
       end
    end
+   function TraitInfo:is_compat(that)
+      if self == that then
+         return true
+      end
+      if self.mixins[that] then
+         return true
+      end
+      return false
+   end
 end
 
 local ClassInfo = { kind = "class" } do
@@ -263,8 +274,8 @@ local Unit = { } do
       return setmetatable({
          path    = path;
          tree    = tree;
-         imports = { };
-         entries = { };
+         imports = { }; -- imported scopes (ordered)
+         entries = { }; -- locally defined names
          buffer  = { };
          srcmap  = { };
       }, Unit)
@@ -302,9 +313,8 @@ local Unit = { } do
    end
 end
 
--- A module holds a symbol table with all the top level declarations.
--- The symbol table is a nested scope object for now with CORE as its
--- outer scope.
+-- A module is a named scope and holds a symbol table with all the top level declarations.
+-- The symbol table is a nested scope object for now with CORE as its outer scope.
 local Module = { } do
    Module.__index = Module
 
@@ -326,8 +336,14 @@ local Module = { } do
    function Module:get_scope()
       return self.environ
    end
+
+   function Module:get_name()
+      return self.name
+   end
+
 end
 
+-- root container for module namespaces
 local Universe = { } do
    Universe.__index = Universe
    function Universe.new()

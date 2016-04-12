@@ -130,7 +130,7 @@ local Dumper = { } do
       self.level = self.level - 1
    end
    function Dumper:write(frag)
-      self.buffer[#self.buffer + 1] = string.rep("  ", self.level)..frag
+      self.buffer[#self.buffer + 1] = string.rep("  ", self.level)..tostring(frag)
    end
    function Dumper:visitNode(node)
       if node:get_line() then
@@ -605,7 +605,11 @@ local ModuleStatement = { tag = "ModuleStatement" } do
    end
 
    function ModuleStatement:get_name()
-      return table.concat(self.path, ".")
+      local buf = { }
+      for i, n in self.path do
+         buf[#buf + 1] = n:get_symbol()
+      end
+      return table.concat(buf, ".")
    end
 end
 
@@ -843,7 +847,7 @@ local ForInStatement = { tag = "ForInStatement" } do
 
    function ForInStatement.new(left, right, body)
       return setmetatable({
-         left  = left,
+         left  = NodeList.new(left),
          right = right,
          body  = body,
       }, ForInStatement)

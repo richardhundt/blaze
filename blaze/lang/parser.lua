@@ -896,8 +896,8 @@ local patt = [=[
    word     <- (%alpha / "_" / "$" / "?") (%alnum / "_" / "$" / "!" / "?")*
 
    reserved <- (
-      "let" / "nil" / "true" / "false" / "return"
-      / "break" / "goto" / "do" / "for" / "in" / "take"
+      "let" / "nil" / "true" / "false" / "return" / "try" / "catch"
+      / "break" / "goto" / "do" / "for" / "in" / "take" / "throw"
       / "while" / "repeat" / "until" / "if" / "else"
    ) <idsafe>
 
@@ -996,6 +996,8 @@ local patt = [=[
       / <do_stmt>
       / <decl_stmt>
       / <return_stmt>
+      / <try_stmt>
+      / <throw_stmt>
       / <take_stmt>
       / <break_stmt>
       / <continue_stmt>
@@ -1032,6 +1034,20 @@ local patt = [=[
    return_stmt <- (
       "return" <idsafe> {| (hs <expr_list>)? |}
    ) -> returnStmt
+
+   throw_stmt <- (
+      "throw" <idsafe> hs <expr>
+   ) -> throwStmt
+
+   try_stmt <- (
+      "try" <idsafe> s <block>
+      {| <catch_clause>* |} (s "finally" <idsafe> s <block>)?
+   ) -> tryStmt
+
+   catch_clause <- (
+      s "catch" <idsafe> hs
+      <ident> (hs "if" <idsafe> s <expr>)? s <block> s
+   ) -> catchClause
 
    decl_stmt <- (
       {| (<decorator> (s <decorator>)* s)? |} (
@@ -1105,13 +1121,13 @@ local patt = [=[
    ) -> funcHead
 
    func_expr <- (
-      <func_head> (hs "=>" s {| <expr_list> |} / s <func_body>)
+      <func_head> (hs "=>" s ({| <expr_list> |} / <func_body>))
    ) -> funcExpr
 
    func_body <- <block>
 
    coro_expr <- (
-      "*" <func_head> (hs "=>" s {| <expr_list> |} / s <func_body>)
+      "*" <func_head> (hs "=>" s ({| <expr_list> |} / <func_body>))
    ) -> coroExpr
 
    coro_decl <- (
@@ -1175,7 +1191,7 @@ local patt = [=[
    )
 
    func_type <- (
-      "(" s <type_list> s ")" s "=>" s
+      "(" s <type_list> s ")" hs ":" hs
       (<type_name> / "(" s <type_list> s ")")
    ) -> funcType
 

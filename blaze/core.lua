@@ -1062,6 +1062,9 @@ end
 function Table.__proto:__setindex(key, val)
    self[1][key] = val
 end
+function Table.__each(self)
+   return pairs(self[1])
+end
 
 for k, v in pairs(table) do
    Table[k] = v
@@ -1282,7 +1285,7 @@ end
 
 local function run(path, ...)
    local unit = require(path)
-   if not unit.main then
+   if not rawget(unit, 'main') then
       error("no main defined in '"..path..'"')
    end
    xpcall(unit.main, errfunc, ...)

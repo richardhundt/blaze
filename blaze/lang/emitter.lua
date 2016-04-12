@@ -29,6 +29,7 @@ local Emitter = { } do
          for i=1, #queue do
             local unit = queue[i]
             local code = table.concat(unit.buffer)
+            print("CODE:", code)
             local func = assert(loadstring(code, '='..unit.path))
             local dump = string.dump(func, false)
             buf[#buf + 1] = string.format(
@@ -362,6 +363,7 @@ local Emitter = { } do
    function Emitter:visitInExpression(node)
    end
 
+   -- +=, /=, *=, ... etc.
    function Emitter:visitUpdateExpression(node)
    end
 
@@ -499,6 +501,12 @@ local Emitter = { } do
       ["/"] = "/",
       ["%"] = "%",
       ["**"] = "^",
+      ["=="] = "==",
+      ["!="] = "~=",
+      ["<="] = "<=",
+      [">="] = ">=",
+      [">"] = ">",
+      ["<"] = "<",
    }
    local bitops = {
       ["&"] = "__band__",
@@ -549,6 +557,28 @@ local Emitter = { } do
       self:write('{')
       self:writelist(node.elements)
       self:write('}')
+   end
+   
+   function Emitter:visitIfStatement(node)
+      self:write('if ')
+      node.test:accept(self)
+      self:write(' then ')
+      node.consequent:accept(self)
+      if node.alternate then
+         self:write(' else ')
+         node.alternate:accept(self)
+      end
+      self:writeln(' end')
+   end
+
+   function Emitter:visitForInStatement(node)
+      self:write('for ')
+      self:writelist(node.left)
+      self:write(' in __each__(')
+      node.right:accept(self)
+      self:write(') do ')
+      node.body:accept(self)
+      self:writeln(' end')
    end
 end
 

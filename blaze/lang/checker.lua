@@ -60,7 +60,6 @@ local Checker = { } do
       if head.returns then
          returns = head.returns:accept(self, scope)
       end
-      local inner = node.body:accept(self, scope)
       local info = model.FunctionInfo.new(nil, params, returns)
       node.info = info
       if not node:is_expression() then
@@ -100,7 +99,7 @@ local Checker = { } do
       local have = { }
       for i=1, #node.right do
          local rhs = node.right[i] or model.AnyType
-         local rhs_type = rhs:accept(self, scope)[1]
+         local rhs_type = rhs:accept(self, scope)
          have[#have + 1] = rhs_type
       end
 
@@ -111,14 +110,9 @@ local Checker = { } do
       end
    end
 
-   function Checker:visitSignatureNode(node, scope)
-
-   end
-
    function Checker:visitClassNode(node, parent)
-      local scope = self:begin_scope("class")
-      node:visit_children(self, scope)
-      self:end_scope()
+      local scope = scope.NestedScope.new(outer, "class")
+      return node:visit_children(self, scope)
    end
 
    function Checker:visitLocalDeclaration(node, scope)
@@ -147,9 +141,9 @@ local Checker = { } do
       for i=1, #node.inits do
          local n = node.inits[i]
          local l = node.inits[i]:accept(self, scope)
-         for j=1, #l do
-            have[#have + 1] = l[j]
-         end
+         --for j=1, #l do
+            have[#have + 1] = l
+         --end
       end
       for i=1, #want do
          if not want[i]:is_compat(have[i]) then
@@ -170,6 +164,11 @@ local Checker = { } do
    function Checker:visitMemberExpression(node, scope, is_call)
       local object = node.object
       local property = node.property
+      local obj_type = object:accept(self, scope, is_call)
+      print("obj_type:", obj_type.kind, property.name)
+      for k, v in pairs(obj_type) do
+         print(k, v)
+      end
       -- ("foo" ~ "42").find()
       -- get the type of the object
       -- get the type of the property
@@ -183,13 +182,13 @@ local Checker = { } do
    function Checker:visitLiteral(node)
       local t = type(node.value)
       if t == 'string' then
-         return { model.StringType }
+         return model.StringType
       elseif t == 'number' then
-         return { model.NumberType }
+         return model.NumberType
       elseif t == 'nil' then
-         return { model.NilType }
+         return model.NilType
       elseif t == 'boolean' then
-         return { model.BooleanType }
+         return model.BooleanType
       end
    end
 
@@ -221,7 +220,7 @@ local Checker = { } do
          if not p2_type:is_compat(rhs_type) then
             self:type_error(p2_type, rhs_type)
          end
-         return op_sig.returns
+         return op_sig.returns[1]
       else
          self.ctx:abort(string.format("operation '%s' not supported", oper))
       end
@@ -229,6 +228,10 @@ local Checker = { } do
 
    function Checker:visitExpressionStatement(node, ...)
       return node:visit_children(self, ...)
+   end
+   
+   function Checker:visitNewExpression(node, scope)
+      return scope:lookup(node.base.name)
    end
 
    function Checker:visitCallExpression(node, scope)
