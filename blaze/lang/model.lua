@@ -246,6 +246,9 @@ local TraitInfo = { kind = "trait" } do
          end
       end
    end
+   function TraitInfo:is_compat(that)
+      return that == self or that.base == self or self.mixins[that]
+   end
 end
 
 local ClassInfo = { kind = "class" } do

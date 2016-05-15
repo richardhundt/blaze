@@ -29,6 +29,7 @@ local Emitter = { } do
          for i=1, #queue do
             local unit = queue[i]
             local code = table.concat(unit.buffer)
+            print(code)
             local func = assert(loadstring(code, '='..unit.path))
             local dump = string.dump(func, false)
             buf[#buf + 1] = string.format(
@@ -171,8 +172,8 @@ local Emitter = { } do
       self:writefmt('import(%q,%s)', path, table.concat(names_list, ','))
    end
 
-   function Emitter:visitModuleDeclaration(node)
-
+   function Emitter:visitModuleStatement(node)
+      self:writefmt('module(%q,%s)', node:get_name(), '__core__.environ')
    end
 
    function Emitter:visitLiteral(node)

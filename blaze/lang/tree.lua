@@ -605,7 +605,11 @@ local ModuleStatement = { tag = "ModuleStatement" } do
    end
 
    function ModuleStatement:get_name()
-      return table.concat(self.path, ".")
+      local path = { }
+      for id in self.path:children() do
+         path[#path + 1] = id:get_symbol()
+      end
+      return table.concat(path, ".")
    end
 end
 

@@ -19,7 +19,7 @@ local Checker = { } do
          for unit in input do
             self.ctx:set_file(unit.path)
             xpcall(function()
-               self:analyze(unit)
+               --self:analyze(unit)
             end, function(e)
                print(e, debug.traceback())
             end)
@@ -116,9 +116,9 @@ local Checker = { } do
    end
 
    function Checker:visitClassNode(node, parent)
-      local scope = self:begin_scope("class")
+      local scope = scope.NestedScope.new(parent, "class") -- self:begin_scope("class")
       node:visit_children(self, scope)
-      self:end_scope()
+      --self:end_scope()
    end
 
    function Checker:visitLocalDeclaration(node, scope)
@@ -234,6 +234,10 @@ local Checker = { } do
    function Checker:visitCallExpression(node, scope)
       local callee = node.callee
       callee:accept(self, scope, true)
+   end
+
+   function Checker:visitNewExpression(node, scope)
+      return { scope:lookup(node.base.name) }
    end
 
    function Checker:visitIdentifier(node, scope)

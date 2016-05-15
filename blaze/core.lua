@@ -1282,7 +1282,7 @@ end
 
 local function run(path, ...)
    local unit = require(path)
-   if not unit.main then
+   if not rawget(unit, 'main') then
       error("no main defined in '"..path..'"')
    end
    xpcall(unit.main, errfunc, ...)
@@ -1390,8 +1390,12 @@ table.insert(package.loaders, 1, function(path)
    if path:sub(-4) == '.blz' then
       local body = package.preload[path]
       return function(...)
-         local _, exports = xpcall(body, errfunc, ...)
-         return exports
+         local ok, rv = xpcall(body, errfunc, ...)
+         if not ok then
+            --print(rv)
+            os.exit(-1)
+         end
+         return rv
       end
    end
 end)

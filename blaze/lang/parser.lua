@@ -593,7 +593,7 @@ function fold_atom(exp)
 end
 
 function fold_expr(exp, min)
-   local lhs = fold_atom(exp, 1)
+   local lhs = shift(exp, 1)
    if type(lhs) == 'table' and lhs.tag == 'UnaryExpression' then
       local op   = lhs.operator..'_'
       local info = op_info[op]
