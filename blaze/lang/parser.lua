@@ -1597,7 +1597,7 @@ local Parser = { } do
 
    function Parser:parse(src, name, line, ...)
       local tree = grammar:match(src, nil, name, line or 1, ...)
-      link_parent(tree, nil)
+      --link_parent(tree, nil)
       return tree
    end
 end

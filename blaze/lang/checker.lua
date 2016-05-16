@@ -37,7 +37,7 @@ local Checker = { } do
    end
 
    function Checker:visitNodeList(list, ...)
-      list:visit_children(self, ...)
+      return list:visit_children(self, ...)
    end
 
    function Checker:visitChunkNode(node, ...)
@@ -72,7 +72,7 @@ local Checker = { } do
    end
 
    function Checker:type_error(expect, got)
-      self.ctx:abort(string.format("type error: expected %s got %s", expect.name, got.name))
+      self.ctx:abort(string.format("type error: expected %s got %s\n%s", expect.name, got.name, debug.traceback()))
    end
 
    function Checker:visitAssignExpression(node, scope)
@@ -123,7 +123,9 @@ local Checker = { } do
             local name = n:get_symbol()
             local info = model.VarInfo.new(name)
             if n.type then
+               print("Identifier TYPE:", util.dump(n.type))
                info.type = n.type:accept(self, scope)
+               print("RESOLVED:", util.dump(info.type))
             else
                info.type = model.AnyType
             end
@@ -153,26 +155,39 @@ local Checker = { } do
    end
 
    function Checker:visitTypeName(node, scope)
-      local type_name = node.base:get_symbol()
-      local type_info = scope:lookup(type_name)
-      if not type_info then
-         self.ctx:abort("no such type: "..type_name)
+      local name = node.base:get_symbol()
+      local info = scope:lookup(name)
+      if not info then
+         self.ctx:abort("no such type: "..name)
       end
-      return type_info
+      if node.arguments then
+         local args = { }
+         for i=1, #node.arguments.elements do
+            local a = node.arguments.elements[i]:accept(self, scope)
+            args[#args + 1] = a
+         end
+         info = info:construct(args)
+         print("ARGS...", util.dump(args))
+      end
+      print("visitTypeName returning:", util.dump(info))
+      return info
    end
 
    function Checker:visitMemberExpression(node, scope, is_call)
-      local object = node.object
-      local property = node.property
-      local obj_type = object:accept(self, scope, is_call)
-      print("obj_type:", obj_type.kind, property.name)
-      for k, v in pairs(obj_type) do
-         print(k, v)
-      end
-      -- ("foo" ~ "42").find()
       -- get the type of the object
+      local obj_info = node.object:accept(self, scope, is_call)
+      local att_name = node.property:get_symbol()
       -- get the type of the property
-      -- if it is a call then check the signature
+      local found
+      if is_call then
+         found = obj_info.type:find_method(att_name)
+      else
+         found = obj_info.type:find_field(att_name)
+      end
+      if not found then
+         self.ctx:abort("no such member "..att_name)
+      end
+      return found
    end
 
    function Checker:visitRichString(node, ...)
@@ -189,6 +204,8 @@ local Checker = { } do
          return model.NilType
       elseif t == 'boolean' then
          return model.BooleanType
+      else
+         error("NYI: Literal: " .. t)
       end
    end
 
@@ -235,13 +252,35 @@ local Checker = { } do
    end
 
    function Checker:visitCallExpression(node, scope)
-      local callee = node.callee
-      callee:accept(self, scope, true)
+      local cinfo = node.callee:accept(self, scope, true)
+      local pinfo = { }
+      for i=1, #node.arguments do
+         pinfo[#pinfo + 1] = node.arguments[i]:accept(self, scope)
+      end
+      if cinfo.params then
+         if #pinfo ~= #cinfo.params then
+            if not (#pinfo > #cinfo.params and cinfo.params[#cinfo.params]:is_rest()) then
+               self.ctx:abort(string.format("wrong number of arguments (%s expected got %s)", #cinfo.params, #pinfo))
+            end
+         end
+         for i=1, #pinfo do
+            if i >= #cinfo.params and cinfo.params[i]:is_rest() then
+               if not cinfo.params[#cinfo.params]:check_type(pinfo[i]) then
+                  self:type_error(cinfo.params[#cinfo.params], pinfo[i])
+               end
+            else
+               if not cinfo.params[i]:check_type(pinfo[i]) then
+                  self:type_error(cinfo.params[i], pinfo[i])
+               end
+            end
+         end
+      end
    end
 
    function Checker:visitIdentifier(node, scope)
       local name = node:get_symbol()
       local info = scope:lookup(name)
+      print("name:", name, "info:", util.dump(info))
       if not info and node:is_lookup() then
          self.ctx:abort("variable "..name.." is not defined")
       end

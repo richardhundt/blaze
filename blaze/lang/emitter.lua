@@ -29,7 +29,7 @@ local Emitter = { } do
          for i=1, #queue do
             local unit = queue[i]
             local code = table.concat(unit.buffer)
-            print("CODE:", code)
+            print("CODE (excluding core header):", table.concat({unpack(unit.buffer, 3)}))
             local func = assert(loadstring(code, '='..unit.path))
             local dump = string.dump(func, false)
             buf[#buf + 1] = string.format(
@@ -419,18 +419,20 @@ local Emitter = { } do
       end
       if self.ctx:is_checked() and node.type then
          local type_name = node.type.base:get_symbol()
+         local type_args = node.type.arguments
          for i=1, #info.params do
             if info.params[i] == type_name then
                self:writefmt(
                   '__check__(%q,...,self.__info[%s])', name, i
                )
+               found = true
                break
             end
          end
       end
 
       local slot = info:field_index(name)
-      assert(slot)
+      assert(slot, "no slot for name: "..name)
       self:write(' self['..slot..']=...')
       self:writeln(' end')
       if node.is_static then

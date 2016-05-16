@@ -420,6 +420,12 @@ local PropertyNode = { tag = "PropertyNode" } do
    function PropertyNode:accept(visitor, ...)
       return visitor:visitPropertyNode(self, ...)
    end
+   function PropertyNode:get_type()
+      return self.type
+   end
+   function PropertyNode:get_init()
+      return self.init
+   end
 end
 
 local MethodNode = { tag = "MethodNode" } do

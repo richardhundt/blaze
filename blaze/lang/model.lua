@@ -1,3 +1,4 @@
+local util  = require("blaze.lang.util")
 local scope = require("blaze.lang.scope")
 
 -- holds mappings from nodes to their type info
@@ -80,7 +81,14 @@ local VarInfo = { kind = "variable" } do
       if that == AnyType then
          return true
       end
+      print("self.type:", util.dump(self.type))
       return self.type:is_compat(that)
+   end
+   function VarInfo:set_init(init)
+      self.init = init
+   end
+   function VarInfo:construct(type)
+      return VarInfo.new(self.name, type)
    end
 end
 
@@ -90,8 +98,8 @@ local ParamInfo = { kind = "parameter" } do
       return setmetatable(VarInfo.new(...), ParamInfo)
    end
 
-   function ParamInfo:set_type(expr)
-      self.type = expr
+   function ParamInfo:construct(type)
+      return ParamInfo.new(self.name, type)
    end
    function ParamInfo:set_init(expr)
       self.init = expr
@@ -136,6 +144,14 @@ local MethodInfo = { kind = "method" } do
    function MethodInfo.new(...)
       return setmetatable(FunctionInfo.new(...), MethodInfo)
    end
+   function MethodInfo:construct(args)
+      local info = MethodInfo.new(self.name)
+      for i=1, #self.params do
+         local p = ParamInfo.new(self.params.name, args[i])
+         info:add_parameter(p)
+      end
+      return info
+   end
 end
 
 local TraitInfo = { kind = "trait" } do
@@ -151,6 +167,28 @@ local TraitInfo = { kind = "trait" } do
          operators = { };
       }, TraitInfo)
    end
+
+   function TraitInfo:construct(args)
+      local info = TraitInfo.new(self.name, self.base)
+      for i=1, #self.params do
+         info.params[i] = args[i]
+      end
+      for i=1, #self.methods do
+         local m = self.methods[i]
+         info:add_method(m:construct(args))
+      end
+      for i=1, #self.fields do
+         local f = self.fields[i]
+         info:add_field(f:construct(args))
+      end
+      --[[
+      for i=1, #self.operators do
+         info.operators[k] = v:construct(args)
+      end
+      --]]
+      return info
+   end
+
    function TraitInfo:has_parameters()
       return #self.params > 0
    end
@@ -161,27 +199,26 @@ local TraitInfo = { kind = "trait" } do
    end
 
    -- XXX: nominal only for now
-   function TraitInfo:add_parameter(name, info)
-      self.params[#self.params + 1] = name
-      self.params[name] = #self.params
+   function TraitInfo:add_parameter(type)
+      self.params[#self.params + 1] = type
    end
 
-   function TraitInfo:add_method(name, info)
-      self.methods[name] = info
-      self.methods[#self.methods + 1] = name
+   function TraitInfo:add_method(info)
+      self.methods[#self.methods + 1] = info
+      self.methods[info.name] = info
       info:set_parent(self)
    end
    function TraitInfo:find_method(name)
-      if self.method[name] then
-         return self.method[name]
+      if self.methods[name] then
+         return self.methods[name]
       end
       if self.base then
          return self.base:find_method(name)
       end
    end
-   function TraitInfo:add_field(name, info)
-      self.fields[#self.fields + 1] = name
-      self.fields[name] = info
+   function TraitInfo:add_field(info)
+      self.fields[#self.fields + 1] = info
+      self.fields[info.name] = info
    end
    function TraitInfo:find_field(name)
       if self.fields[name] then
@@ -195,9 +232,9 @@ local TraitInfo = { kind = "trait" } do
       local i = 0
       return function()
          i = i + 1
-         local name = self.methods[i]
-         if name then
-            return name, self.methods[name]
+         local info = self.methods[i]
+         if info then
+            return info.name, info
          end
       end
    end
@@ -205,9 +242,9 @@ local TraitInfo = { kind = "trait" } do
       local i = 0
       return function()
          i = i + 1
-         local name = self.fields[i]
-         if name then
-            return name, self.fields[name]
+         local info = self.fields[i]
+         if info then
+            return info.name, info
          end
       end
    end
@@ -231,10 +268,10 @@ local TraitInfo = { kind = "trait" } do
       self.mixins[that] = true
       self.mixins[#self.mixins + 1] = that
       for name, info in that:method_pairs() do
-         self:add_method(name, info)
+         self:add_method(info)
       end
       for name, info in that:field_pairs() do
-         self:add_field(name, info)
+         self:add_field(info)
       end
    end
    function TraitInfo:set_base(that)
@@ -255,6 +292,10 @@ local TraitInfo = { kind = "trait" } do
       if self.mixins[that] then
          return true
       end
+      if self.base == that.base then
+         print("A ===> ", util.dump(self), "B ===> ", util.dump(that))
+         return true
+      end
       return false
    end
 end
@@ -264,6 +305,11 @@ local ClassInfo = { kind = "class" } do
    function ClassInfo.new(name, base)
       return setmetatable(TraitInfo.new(name, base), ClassInfo)
    end
+
+   function ClassInfo:construct(...)
+      return setmetatable(TraitInfo.construct(self, ...), ClassInfo)
+   end
+
 end
 
 -- A compilation unit. Keeps a path and ast root reference and

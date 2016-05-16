@@ -172,7 +172,7 @@ local Definer = { } do
       local method = model.MethodInfo.new(name)
       node.info = method
 
-      parent:add_method(name, method)
+      parent:add_method(method)
 
       for n in node:children() do
          n:accept(self, method)
@@ -197,27 +197,34 @@ local Definer = { } do
       end
    end
 
+   function Definer:visitSignatureNode(node, ...)
+      node:visit_children(self, ...)
+   end
+
    function Definer:visitParameterList(node, ...)
       node:visit_children(self, ...)
    end
 
    function Definer:visitParameterNode(node, parent)
       self:visitNode(node)
-      local name  = node:get_name()
-      local param = model.ParamInfo.new(name)
+      local name = node:get_name()
+      local info = model.ParamInfo.new(name)
 
-      param:set_type(node:get_type())
-      param:set_rest(node:is_rest())
+      info:set_type(node:get_type())
+      info:set_rest(node:is_rest())
 
-      parent:add_parameter(name, param)
+      parent:add_parameter(info)
    end
 
    function Definer:visitPropertyNode(node, parent)
       self:visitNode(node)
       local name = node.name:get_symbol()
-      local prop = model.VarInfo.new(name)
-      node.info = prop
-      parent:add_field(name, prop)
+      local info = model.VarInfo.new(name)
+      node.info = info
+      info:set_type(node:get_type())
+      info:set_init(node:get_init())
+      print("ADD FIELD:", util.dump(info))
+      parent:add_field(info)
    end
 
    function Definer:visitBlockNode(node, ...)
