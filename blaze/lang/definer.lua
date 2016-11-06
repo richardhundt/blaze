@@ -6,7 +6,6 @@ local model   = require("blaze.lang.model")
 local scope   = require("blaze.lang.scope")
 
 do
-   ---[[
    local predef = {
       'Nil','Number','Boolean', 'String', 'Function', 'Coroutine', 'Range',
       'UserData', 'Table', 'Array', 'Error', 'Trait', 'Class', 'Object',
@@ -19,10 +18,6 @@ do
    for k,v in pairs(_G) do
       scope.CORE:define(k, { })
    end
-
-   scope.CORE:define('Number', model.NumberType)
-   scope.CORE:define('String', model.StringType)
-   --]]
 end
 
 local Definer = { } do
@@ -147,20 +142,7 @@ local Definer = { } do
       local name = node:get_name()
       local class = model.ClassInfo.new(name)
       node.info = class
-
       parent:define(name, class)
-      local type_args = node:get_parameters()
-      if type_args then
-         for i=1, #type_args do
-            -- XXX: this can also be 'A extends B<C>'
-            if type_args[i].tag == 'TypeVariance' then
-            else
-               assert(type_args[i].tag == 'Identifier')
-               local type_name = type_args[i]:get_symbol()
-               class:add_parameter(type_name)
-            end
-         end
-      end
       for n in node:children() do
          n:accept(self, class)
       end
@@ -205,10 +187,7 @@ local Definer = { } do
       self:visitNode(node)
       local name  = node:get_name()
       local param = model.ParamInfo.new(name)
-
-      param:set_type(node:get_type())
       param:set_rest(node:is_rest())
-
       parent:add_parameter(name, param)
    end
 

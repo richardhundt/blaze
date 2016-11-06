@@ -99,14 +99,6 @@ local Visitor = { } do
    function Visitor:visitPatternTerm(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitPatternPredef(node, ...) return self:visitNode(node, ...) end
    function Visitor:visitPatternArgument(node, ...) return self:visitNode(node, ...) end
-   function Visitor:visitTypeName(node, ...) return self:visitNode(node, ...) end
-   function Visitor:visitFunctionType(node, ...) return self:visitNode(node, ...) end
-   function Visitor:visitTypeCall(node, ...) return self:visitNode(node, ...) end
-   function Visitor:visitTypeParams(node, ...) return self:visitNode(node, ...) end
-   function Visitor:visitTypeVariance(node, ...) return self:visitNode(node, ...) end
-   function Visitor:visitTypeList(node, ...) return self:visitNode(node, ...) end
-   function Visitor:visitTypeGroup(node, ...) return self:visitNode(node, ...) end
-   function Visitor:visitTypeUnion(node, ...) return self:visitNode(node, ...) end
 end
 
 local Dumper = { } do
@@ -153,9 +145,6 @@ local Dumper = { } do
    end
    function Dumper:visitIdentifier(node)
       self:write("Id("..node.name..")")
-      if node.type then
-         node.type:accept(self)
-      end
    end
    function Dumper:visitLiteral(node)
       if type(node.value) == "string" then
@@ -261,12 +250,10 @@ end
 
 local Identifier = { tag = "Identifier" } do
    Identifier.__index = setmetatable(Identifier, Node)
-   Identifier.child_keys = { 'type' }
 
-   function Identifier.new(name, type)
+   function Identifier.new(name)
       return setmetatable({
          name = name,
-         type = type,
       }, Identifier)
    end
 
@@ -385,12 +372,11 @@ end
 
 local ClassNode = { tag = "ClassNode" } do
    ClassNode.__index = setmetatable(ClassNode, Node)
-   ClassNode.child_keys = { 'name', 'args', 'base', 'body' }
+   ClassNode.child_keys = { 'name', 'base', 'body' }
 
-   function ClassNode.new(name, args, base, body)
+   function ClassNode.new(name, base, body)
       return setmetatable({
          name = name,
-         args = args,
          base = base,
          body = body,
       }, ClassNode)
@@ -401,19 +387,15 @@ local ClassNode = { tag = "ClassNode" } do
    function ClassNode:get_name()
       return self.name:get_symbol()
    end
-   function ClassNode:get_parameters()
-      return self.args
-   end
 end
 
 local PropertyNode = { tag = "PropertyNode" } do
    PropertyNode.__index = setmetatable(PropertyNode, Node)
-   PropertyNode.child_keys = { 'name', 'type', 'init' }
+   PropertyNode.child_keys = { 'name', 'init' }
 
-   function PropertyNode.new(name, type, init)
+   function PropertyNode.new(name, init)
       return setmetatable({
          name = name,
-         type = type,
          init = init,
       }, PropertyNode)
    end
@@ -462,12 +444,11 @@ end
 
 local ParameterNode = { tag = "ParameterNode" } do
    ParameterNode.__index = setmetatable(ParameterNode, Node)
-   ParameterNode.child_keys = { 'name', 'type', 'init' }
+   ParameterNode.child_keys = { 'name', 'init' }
 
-   function ParameterNode.new(name, type, init, rest)
+   function ParameterNode.new(name, init, rest)
       return setmetatable({
          name = name,
-         type = type,
          init = init,
          rest = rest,
       }, ParameterNode)
@@ -479,10 +460,6 @@ local ParameterNode = { tag = "ParameterNode" } do
 
    function ParameterNode:get_name()
       return self.name:get_symbol()
-   end
-
-   function ParameterNode:get_type()
-      return self.type
    end
 
    function ParameterNode:get_init()
@@ -523,12 +500,11 @@ end
 
 local SignatureNode = { tag = "SignatureNode" } do
    SignatureNode.__index = setmetatable(SignatureNode, Node)
-   SignatureNode.child_keys = { 'params', 'returns' }
+   SignatureNode.child_keys = { 'params' }
 
-   function SignatureNode.new(params, returns)
+   function SignatureNode.new(params)
       return setmetatable({
-         params = params,
-         returns = returns,
+         params = params
       }, SignatureNode)
    end
 
@@ -1032,22 +1008,6 @@ local ExpressionStatement = { tag = "ExpressionStatement" } do
 
    function ExpressionStatement:accept(visitor, ...)
       return visitor:visitExpressionStatement(self, ...)
-   end
-end
-
-local NewExpression = { tag = "NewExpression" } do
-   NewExpression.__index = setmetatable(NewExpression, Expression)
-   NewExpression.child_keys = { 'base', 'types', 'arguments' }
-
-   function NewExpression.new(base, types, args)
-      return setmetatable({
-         base = base,
-         types = types,
-         arguments = NodeList.new(args),
-      }, NewExpression)
-   end
-   function NewExpression:accept(visitor, ...)
-      return visitor:visitNewExpression(self, ...)
    end
 end
 
@@ -1571,106 +1531,6 @@ local PatternArgument = { tag = "PatternArgument" } do
    end
 end
 
-local FunctionType = { tag = "FunctionType" } do
-   FunctionType.__index = setmetatable(FunctionType, Node)
-   FunctionType.child_keys = { 'params', 'returns' }
-
-   function FunctionType.new(params, returns)
-      return setmetatable({
-         params = params,
-         returns = returns,
-      }, FunctionType)
-   end
-
-   function FunctionType:accept(visitor, ...)
-      return visitor:visitFunctionType(self, ...)
-   end
-end
-
-local TypeVariance = { tag = "TypeVariance" } do
-   TypeVariance.__index = setmetatable(TypeVariance, Node)
-   TypeVariance.child_keys = { 'name', 'base' }
-
-   function TypeVariance.new(name, base)
-      return setmetatable({
-         name = name,
-         base = base,
-      }, TypeVariance)
-   end
-   function TypeVariance:accept(visitor, ...)
-      return visitor:visitTypeVariance(self, ...)
-   end
-end
-
-local TypeName = { tag = "TypeName" } do
-   TypeName.__index = setmetatable(TypeName, Node)
-   TypeName.child_keys = { 'base', 'arguments' }
-
-   function TypeName.new(base, args)
-      return setmetatable({
-         base = base,
-         arguments = args,
-      }, TypeName)
-   end
-   function TypeName:accept(visitor, ...)
-      return visitor:visitTypeName(self, ...)
-   end
-end
-
-local TypeParams = { tag = "TypeParams" } do
-   TypeParams.__index = setmetatable(TypeParams, NodeList)
-   function TypeParams.new(list)
-      return setmetatable(list, TypeParams)
-   end
-   function TypeParams:accept(visitor, ...)
-      return visitor:visitTypeParams(self, ...)
-   end
-end
-
-local TypeList = { tag = "TypeList" } do
-   TypeList.__index = setmetatable(TypeList, Node)
-   TypeList.child_keys = { 'elements' }
-
-   function TypeList.new(elements)
-      return setmetatable({
-         elements = NodeList.new(elements),
-      }, TypeList)
-   end
-   function TypeList:accept(visitor, ...)
-      return visitor:visitTypeList(self, ...)
-   end
-end
-
-local TypeGroup = { tag = "TypeGroup" } do
-   TypeGroup.__index = setmetatable(TypeGroup, Node)
-   TypeGroup.child_keys = { 'expression' }
-
-   function TypeGroup.new(expression)
-      return setmetatable({
-         expression = expression
-      }, TypeGroup)
-   end
-   function TypeGroup:accept(visitor, ...)
-      return visitor:visitTypeGroup(self, ...)
-   end
-end
-
-local TypeUnion = { tag = "TypeUnion" } do
-   TypeUnion.__index = setmetatable(TypeUnion, Node)
-   TypeUnion.child_keys = { 'left', 'right' }
-
-   function TypeUnion.new(left, right)
-      return setmetatable({
-         left = left,
-         right = right,
-      }, TypeUnion)
-   end
-   function TypeUnion:accept(visitor, ...)
-      return visitor:visitTypeUnion(self, ...)
-   end
-end
-
-
 return {
    Visitor = Visitor,
    Dumper = Dumper,
@@ -1760,13 +1620,5 @@ return {
    PatternRange = PatternRange,
    PatternTerm = PatternTerm,
    PatternPredef = PatternPredef,
-   PatternArgument = PatternArgument,
-   TypeName = TypeName,
-   TypeCall = TypeCall,
-   TypeParams = TypeParams,
-   TypeVariance = TypeVariance,
-   FunctionType = FunctionType,
-   TypeList = TypeList,
-   TypeGroup = TypeGroup,
-   TypeUnion = TypeUnion,
+   PatternArgument = PatternArgument
 }

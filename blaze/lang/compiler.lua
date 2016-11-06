@@ -2,7 +2,6 @@ local model   = require("blaze.lang.model")
 local Reader  = require("blaze.lang.reader")
 local Parser  = require("blaze.lang.parser")
 local Definer = require("blaze.lang.definer")
-local Checker = require("blaze.lang.checker")
 local Emitter = require("blaze.lang.emitter")
 
 local Context = { } do
@@ -21,7 +20,6 @@ local Context = { } do
       self.reader  = Reader.new(self)
       self.parser  = Parser.new(self)
       self.definer = Definer.new(self)
-      self.checker = Checker.new(self)
       self.emitter = Emitter.new(self)
 
       return self
@@ -72,7 +70,6 @@ local Compiler = { } do
          ctx.reader:spawn()
             :pipe(ctx.parser:spawn())
             :pipe(ctx.definer:spawn())
-            :pipe(ctx.checker:spawn())
             :pipe(ctx.emitter:spawn())
 
       local unit = model.Unit.new(path)

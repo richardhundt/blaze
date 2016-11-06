@@ -55,10 +55,6 @@ function defs.term(line, node, tail)
    return node
 end
 
-function defs.newExpr(base, types, args)
-   return tree.NewExpression.new(base, types, args)
-end
-
 function defs.expr(line, node)
    node:set_line(line)
    return node
@@ -132,46 +128,6 @@ end
 
 function defs.identifier(name)
    return tree.Identifier.new(name)
-end
-
-function defs.typeExpr(expr)
-   return expr
-end
-
-function defs.typeParams(list)
-   return tree.TypeParams.new(list)
-end
-
-function defs.typeVariance(name, base)
-   return tree.TypeVariance.new(name, base)
-end
-
-function defs.typeName(base, args)
-   return tree.TypeName.new(base, args)
-end
-
-function defs.funcType(params, returns)
-   return tree.FunctionType.new(params, returns)
-end
-
-function defs.typeList(list)
-   return tree.TypeList.new(list)
-end
-
-function defs.typeUnion(exprs)
-   if #exprs == 1 then
-      return exprs[1]
-   end
-   local a = exprs[1]
-   for i=2, #exprs do
-      a = tree.TypeUnion.new(a, exprs[i])
-   end
-   return a
-end
-
-function defs.typedIdent(ident, texpr)
-   ident.type = texpr
-   return ident
 end
 
 function defs.compExpr(body, blocks)
@@ -262,8 +218,8 @@ function defs.paramList(params)
    return tree.ParameterList.new(params)
 end
 
-function defs.funcHead(params, returns)
-   return tree.SignatureNode.new(params, returns)
+function defs.funcHead(params)
+   return tree.SignatureNode.new(params)
 end
 
 function defs.funcDecl(name, head, body)
@@ -371,8 +327,8 @@ function defs.catchClause(param, guard, body)
    return tree.CatchClause.new(param, guard, body)
 end
 
-function defs.classDecl(name, args, base, body)
-   return tree.ClassNode.new(name, args, base, body)
+function defs.classDecl(name, base, body)
+   return tree.ClassNode.new(name, base, body)
 end
 
 function defs.classMember(deco, scope, node)
@@ -382,7 +338,7 @@ function defs.classMember(deco, scope, node)
 end
 
 function defs.propDecl(cap)
-   return tree.PropertyNode.new(cap.name, cap.type, cap.init)
+   return tree.PropertyNode.new(cap.name, cap.init)
 end
 
 function defs.methDecl(kind, name, head, body)
@@ -1049,10 +1005,6 @@ local patt = [=[
       "@" <term>
    ) -> decorator
 
-   typed_ident <- (
-      <ident> hs ":" s <type_expr>
-   ) -> typedIdent
-
    let_decl <- (
       "let" <idsafe> %1 s {| <bind_left> (s "," s <bind_left>)* |}
       (s ({"="} s {| <expr_list> |} / {"in"} <idsafe> s <expr>))?
@@ -1063,9 +1015,7 @@ local patt = [=[
    ) -> localFuncDecl
 
    bind_left <- (
-        <table_patt>
-      / <typed_ident>
-      / <term>
+      <table_patt> / <term>
    )
 
    table_sep <- (
@@ -1101,7 +1051,7 @@ local patt = [=[
    ) -> funcDecl
 
    func_head <- (
-      "(" s <param_list> s ")" (hs ":" <type_list> / '' -> nil)
+      "(" s <param_list> s ")"
    ) -> funcHead
 
    func_expr <- (
@@ -1124,14 +1074,12 @@ local patt = [=[
 
    trait_decl <- (
       "trait" <idsafe> s <ident>
-      (s "<" <type_params> ">" / '' -> nil)
       (s <class_heritage> / '' -> nil) s
       <class_body>
    ) -> traitDecl
 
    class_decl <- (
       "class" <idsafe> s <ident>
-      (s "<" <type_params> ">" / '' -> nil)
       (s <class_heritage> / '' -> nil) s
       <class_body>
    ) -> classDecl
@@ -1152,13 +1100,11 @@ local patt = [=[
    ) -> classMember
 
    class_heritage <- (
-      "extends" <idsafe> s <type_name>
+      "extends" <idsafe> s <ident>
    )
 
    prop_decl <- {|
-      {:name: <ident> :}
-      (s ":" s {:type: <type_expr> :} / '' -> nil)
-      (s "=" s {:init: <expr> :})?
+      {:name: <ident> :} s "=" s {:init: <expr> :}
    |} -> propDecl
 
    meth_decl <- (
@@ -1166,46 +1112,8 @@ local patt = [=[
       <func_head> s <func_body>
    ) -> methDecl
 
-   type_name <- (
-      <ident> ("<" <type_list> ">" / '' -> nil)
-   ) -> typeName
-
-   type_term <- (
-      <type_name> / <func_type>
-   )
-
-   func_type <- (
-      "(" s <type_list> s ")" s "=>" s
-      (<type_name> / "(" s <type_list> s ")")
-   ) -> funcType
-
-   type_list <- (
-      {| s <type_expr> (s "," s <type_expr>)* |}
-   ) -> typeList
-
-   type_expr <- (
-      <type_variance> / <type_union>
-   ) -> typeExpr
-
-   type_union <- (
-      {| <type_term> (s "|" s <type_term>)* |}
-   ) -> typeUnion
-
-   type_params <- (
-      {| <type_param> (s "," s <type_param>)* |}
-   ) -> typeParams
-
-   type_param <- (
-      <type_variance> / <ident>
-   )
-
-   type_variance <- (
-      <ident> s "extends" <idsafe> s <ident>
-   ) -> typeVariance
-
    param <- {|
       {:name: <ident> :}
-      (s ":" s {:type: <type_expr> :})?
       (s "=" s {:init: <expr> :})?
    |} -> param
 
@@ -1279,15 +1187,9 @@ local patt = [=[
       !<reserved> { <word> }
    ) -> identifier
 
-   new_expr <- (
-      "new" <idsafe> s <ident> ("<" <type_list> ">" / '' -> nil)
-      ("(" s {| <expr_list>? |} s (")" / %1 => error))?
-   ) -> newExpr
-
    primary <- (('' -> curline) (
         <coro_expr>
       / <func_expr>
-      / <new_expr>
       / <nil_expr>
       / <super_expr>
       / <table_expr>
@@ -1300,7 +1202,7 @@ local patt = [=[
 
    term <- (
       <primary> {| (
-         s {'.' / '::'} s <name> -- ("<" <type_list> ">")?
+         s {'.' / '::'} s <name>
          / {'::['} s <expr> s (']' / %1 => error)
          / { '[' } s <expr> s (']' / %1 => error)
          / { '(' } s {| <expr_list>? |} s (")" / %1 => error)
