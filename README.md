@@ -1,1 +1,1 @@
-Blaze - a language for setting things on fire.
+Blaze - a language for setting things on fire!
